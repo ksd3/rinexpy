@@ -311,21 +311,23 @@ def _assemble_nav3(
                 positions = [full_fields.index(name) for name in cf]
                 for k, pos in enumerate(positions):
                     chunk = raw[k * _FIELD_WIDTH : (k + 1) * _FIELD_WIDTH].strip()
-                    if chunk:
-                        try:
-                            values[pos] = float(chunk)
-                        except ValueError:
-                            values[pos] = 0.0
-                # Fields with no data — e.g. missing trailing FitIntvl — are
-                # spec'd to mean zero. We fill the unmapped Keplerian fields
-                # with 0 (not NaN) only for the inside region; trailing
-                # truncated fields stay at NaN unless n_present's branch
-                # covered them, in which case they're already in `cf`.
+                    # Empty chunks within a present record are spec'd as 0,
+                    # not NaN (RINEX 3.04 §6, missing field interpretation).
+                    if not chunk:
+                        values[pos] = 0.0
+                        continue
+                    try:
+                        values[pos] = float(chunk)
+                    except ValueError:
+                        values[pos] = 0.0
+                # Fields trimmed by _select_fields (typically trailing
+                # FitIntvl / spare slots that the receiver omitted) also
+                # default to zero per the RINEX 3.04 spec, except for the
+                # purely-decorative "spare*" slots which we leave as NaN
+                # because they have no defined unit.
                 for k, name in enumerate(full_fields):
                     if name not in cf and not name.startswith("spare"):
-                        # Spec: missing fields default to zero.
-                        if k < positions[-1] if positions else False:
-                            values[k] = 0.0
+                        values[k] = 0.0
                 expanded[label][t] = values
                 times_set.add(t)
 

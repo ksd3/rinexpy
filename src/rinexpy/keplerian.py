@@ -49,11 +49,11 @@ def keplerian2ecef(
         If the satellite system is unsupported (anything other than G/E or
         the directly-reported R/S).
     """
-    # GLONASS / SBAS report ECEF directly.
-    if "sv" in sv and sv["sv"] in {"R", "S"}:
+    sys_letter = sv.svtype[0]
+    # GLONASS / SBAS report ECEF directly — no Keplerian conversion needed.
+    if sys_letter in {"R", "S"}:
         return sv["X"], sv["Y"], sv["Z"]
 
-    sys_letter = sv.svtype[0]
     if sys_letter == "E":
         weeks = sv["GALWeek"].values - 1024
     elif sys_letter == "G":

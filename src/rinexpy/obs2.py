@@ -99,7 +99,8 @@ def rinexobs2(
         )
         if len(ds.variables) > 0:
             attrs = ds.attrs
-            obs = xr.merge((obs, ds))
+            # explicit join/compat to silence xarray FutureWarnings.
+            obs = xr.merge((obs, ds), join="outer", compat="no_conflicts")
     obs.attrs = attrs
     return obs
 

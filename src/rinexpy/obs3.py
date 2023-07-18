@@ -237,10 +237,12 @@ def _assemble_obs3(
     n_t = len(times)
 
     # Determine global SV set per system, sorted alphabetically within each
-    # system to match georinex's xarray.merge-driven SV ordering. We clean
+    # system. Systems themselves are then concatenated in alphabetical order
+    # to match georinex's xarray.merge-driven SV ordering. We clean
     # 'G 7' -> 'G07' here so labels collate correctly.
-    per_sys_svs: dict[str, list[str]] = {sk: [] for sk in fields}
-    seen_sv: dict[str, set[str]] = {sk: set() for sk in fields}
+    sys_keys = sorted(fields)
+    per_sys_svs: dict[str, list[str]] = {sk: [] for sk in sys_keys}
+    seen_sv: dict[str, set[str]] = {sk: set() for sk in sys_keys}
     for _, svs, _ in epochs:
         for label in svs:
             sk = label[0]
@@ -262,7 +264,7 @@ def _assemble_obs3(
     sys_data: dict[str, np.ndarray] = {}
     sys_lli: dict[str, np.ndarray] = {}
     sys_ssi: dict[str, np.ndarray] = {}
-    for sk in fields:
+    for sk in sys_keys:
         n_sv = len(per_sys_svs[sk])
         n_meas = len(fields[sk])
         sys_data[sk] = np.full((n_meas, n_t, n_sv), np.nan, dtype=float)
@@ -294,10 +296,10 @@ def _assemble_obs3(
                 sys_ssi[sk][:, i, j] = decoded[:n_meas, 2]
 
     # Build the union of all SV labels in stable order (sorted within each
-    # system, systems concatenated in fields-order).
+    # system; systems themselves concatenated in alphabetical order).
     all_svs: list[str] = []
     sv_offset: dict[str, int] = {}
-    for sk in fields:
+    for sk in sys_keys:
         sv_offset[sk] = len(all_svs)
         all_svs.extend(per_sys_svs[sk])
 
@@ -311,7 +313,7 @@ def _assemble_obs3(
     var_buffers: dict[str, np.ndarray] = {}
     var_lli: dict[str, np.ndarray] = {}
     var_ssi: dict[str, np.ndarray] = {}
-    for sk in fields:
+    for sk in sys_keys:
         offset = sv_offset[sk]
         n_sv = len(per_sys_svs[sk])
         for k, label in enumerate(fields[sk]):

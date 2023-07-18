@@ -68,14 +68,20 @@ def rinexinfo(fn: FileLike) -> dict[Hashable, Any]:
     if isinstance(fn, (str, Path)):
         path = Path(fn).expanduser()
         if path.suffix == ".nc":
-            attrs: dict[Hashable, Any] = {"rinextype": []}
+            rinex_types: list[str] = []
+            attrs: dict[Hashable, Any] = {}
             for grp in ("OBS", "NAV"):
                 try:
                     ds = xr.open_dataset(path, group=grp)
                 except OSError:
                     continue
-                attrs["rinextype"].append(grp.lower())
-                attrs.update(ds.attrs)
+                rinex_types.append(grp.lower())
+                # Merge group attrs but never let the group's own
+                # 'rinextype' string clobber our accumulating list.
+                for k, v in ds.attrs.items():
+                    if k != "rinextype":
+                        attrs[k] = v
+            attrs["rinextype"] = rinex_types
             return attrs
 
         with opener(path, header=True) as stream:
