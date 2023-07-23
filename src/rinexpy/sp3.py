@@ -90,8 +90,12 @@ def load_sp3(fn: FileLike, outfn: Path | None = None) -> xr.Dataset:
         ecefs: list[np.ndarray] = []
         clocks: list[np.ndarray] = []
         vels: list[np.ndarray] = []
-        ecef = np.empty((n_sv, 3))
-        clock = np.empty((n_sv, 2))
+        # Pre-fill with NaN: SVs absent from a particular epoch must read
+        # back as NaN, not whatever happened to be on the heap. (georinex
+        # forgot to fill these buffers and the resulting nondeterminism
+        # was a long-standing source of confusing test failures.)
+        ecef = np.full((n_sv, 3), np.nan)
+        clock = np.full((n_sv, 2), np.nan)
         vel = np.full((n_sv, 3), np.nan)
         i = 0
         times: list[datetime] = [_parse_sp3_dt(line)]
@@ -105,8 +109,8 @@ def load_sp3(fn: FileLike, outfn: Path | None = None) -> xr.Dataset:
                 ecefs.append(ecef)
                 clocks.append(clock)
                 vels.append(vel)
-                ecef = np.empty((n_sv, 3))
-                clock = np.empty((n_sv, 2))
+                ecef = np.full((n_sv, 3), np.nan)
+                clock = np.full((n_sv, 2), np.nan)
                 vel = np.full((n_sv, 3), np.nan)
                 i = 0
             elif head == "P":
