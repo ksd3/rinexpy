@@ -1,0 +1,29 @@
+# rinexpy 0.1.0 vs georinex 1.16.2
+# medians of up to 3 runs each (capped at 30s wall-clock per file)
+# fixture                                                 size     georinex       rinexpy        speedup
+
+== RINEX 2 OBS ==
+  minimal2.10o                                                  1 KB   georinex     18.3 ms   rinexpy     16.5 ms    1.11x
+  demo.10o                                                      7 KB   georinex     20.1 ms   rinexpy     18.8 ms    1.07x
+  rinex2onesat.10o                                              2 KB   georinex     17.9 ms   rinexpy     16.6 ms    1.08x
+  ab430140.18o.zip                                             12 KB   georinex     50.2 ms   rinexpy     46.5 ms    1.08x
+  ac660270.18o.Z                                               18 KB   georinex     25.5 ms   rinexpy     24.4 ms    1.04x
+
+== RINEX 3 OBS ==
+  obs3.01gage.10o                                               7 KB   georinex      7.6 ms   rinexpy      0.6 ms   13.05x
+  ABMF00GLP_R_20181330000_01D_30S_MO.zip                        3 KB   georinex     19.2 ms   rinexpy      1.1 ms   17.65x
+
+== RINEX 2 NAV ==
+  demo.10n                                                      2 KB   georinex      3.8 ms   rinexpy      0.5 ms    8.29x
+  ab422100.18n                                                122 KB   georinex      5.2 ms   rinexpy      1.9 ms    2.72x
+  ceda2100.18e                                                 16 KB   georinex      3.6 ms   rinexpy      0.7 ms    5.44x
+  brdc2800.15n                                                263 KB   georinex      6.7 ms   rinexpy      3.2 ms    2.07x
+
+== RINEX 3 NAV ==
+  demo_nav3.17n                                                 3 KB   georinex     18.2 ms   rinexpy      0.5 ms   33.49x
+  ELKO00USA_R_20182100000_01D_MN.rnx.gz                       188 KB   georinex   1003.5 ms   rinexpy     30.8 ms   32.58x
+
+== SP3 ==
+  example1.sp3a                                                 3 KB   georinex      1.2 ms   rinexpy      0.7 ms    1.64x
+  igs19362.sp3c                                               225 KB   georinex      3.0 ms   rinexpy      2.5 ms    1.20x
+  minimal.sp3d                                                 11 KB   georinex      1.2 ms   rinexpy      0.8 ms    1.56x

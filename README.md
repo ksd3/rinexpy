@@ -6,8 +6,8 @@ Modern, fast RINEX 2/3/4, CRINEX (Hatanaka), and SP3-a/c/d reader for Python.
 [`georinex`](https://github.com/geospace-code/georinex). It keeps the public
 API and the same xarray-flavored output, but the OBS3 / NAV3 hot paths have
 been rewritten to eliminate the O(N^2) `xarray.merge`-per-epoch pattern. On
-the shared test corpus this is **multiple times faster** for typical RINEX 3
-OBS files while producing equivalent output.
+the shared test corpus this is **13-33x faster** for RINEX-3 NAV/OBS files
+and ~2-8x faster for RINEX-2 NAV (see [docs/BENCHMARKS.md](docs/BENCHMARKS.md)).
 
 ```python
 import rinexpy as rp

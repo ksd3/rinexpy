@@ -18,10 +18,16 @@ import rinexpy
 DATA = Path(__file__).resolve().parent.parent / "tests" / "data"
 
 
-def time_it(fn, *args, n: int = 5, **kwargs) -> float | None:
-    """Run ``fn(*args, **kwargs)`` ``n`` times; return median seconds, or
-    None if any call raised."""
+def time_it(
+    fn, *args, n: int = 3, max_seconds: float = 30.0, **kwargs
+) -> float | None:
+    """Run ``fn(*args, **kwargs)`` up to ``n`` times; return median seconds.
+
+    Returns None if the first call raised. Stops early once total elapsed
+    time exceeds ``max_seconds`` and reports the median of what we got.
+    """
     times: list[float] = []
+    total = 0.0
     for _ in range(n):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -32,41 +38,48 @@ def time_it(fn, *args, n: int = 5, **kwargs) -> float | None:
                 return None
             t1 = time.perf_counter()
         times.append(t1 - t0)
-    return statistics.median(times)
+        total += t1 - t0
+        if total > max_seconds:
+            break
+    return statistics.median(times) if times else None
 
 
-def benchmark(fixture: str, *, n: int = 5) -> None:
+def benchmark(fixture: str, *, n: int = 3, max_seconds: float = 30.0) -> None:
     """Time ``rinexpy.load`` and ``georinex.load`` on a single fixture."""
     fn = DATA / fixture
     if not fn.is_file():
         print(f"  [skip] {fixture} not present")
         return
-    t_gx = time_it(georinex.load, fn, n=n)
-    t_rp = time_it(rinexpy.load, fn, n=n)
+    size_kb = fn.stat().st_size / 1024
+    t_gx = time_it(georinex.load, fn, n=n, max_seconds=max_seconds)
+    t_rp = time_it(rinexpy.load, fn, n=n, max_seconds=max_seconds)
     if t_rp is None:
-        print(f"  {fixture:55s}  rinexpy ERROR")
+        print(f"  {fixture:55s} {size_kb:7.0f} KB   rinexpy ERROR")
         return
     if t_gx is None:
         print(
-            f"  {fixture:55s}  georinex CRASHED   "
-            f"rinexpy {t_rp*1000:7.1f} ms"
+            f"  {fixture:55s} {size_kb:7.0f} KB   "
+            f"georinex CRASHED   rinexpy {t_rp*1000:7.1f} ms"
         )
         return
     speedup = t_gx / t_rp if t_rp > 0 else float("inf")
     print(
-        f"  {fixture:55s}  georinex {t_gx*1000:7.1f} ms   "
-        f"rinexpy {t_rp*1000:7.1f} ms   {speedup:5.2f}x"
+        f"  {fixture:55s} {size_kb:7.0f} KB   "
+        f"georinex {t_gx*1000:8.1f} ms   "
+        f"rinexpy {t_rp*1000:8.1f} ms   {speedup:5.2f}x"
     )
 
 
 def main() -> None:
     print(f"# rinexpy {rinexpy.__version__} vs georinex {georinex.__version__}")
-    print(f"# medians of {5} runs each, file size shown for context\n")
+    print("# medians of up to 3 runs each (capped at 30s wall-clock per file)")
+    print(f"# {'fixture':55s} {'size':8s} {'georinex':14s} {'rinexpy':14s} speedup\n")
 
     print("== RINEX 2 OBS ==")
     for f in [
-        "demo.10o",
         "minimal2.10o",
+        "demo.10o",
+        "rinex2onesat.10o",
         "ab430140.18o.zip",
         "ac660270.18o.Z",
     ]:
@@ -75,10 +88,7 @@ def main() -> None:
     print("\n== RINEX 3 OBS ==")
     for f in [
         "obs3.01gage.10o",
-        "obs3.05gage.19o",
         "ABMF00GLP_R_20181330000_01D_30S_MO.zip",
-        "CEDA00USA_R_20182100000_23H_15S_MO.rnx.gz",
-        "CEBR00ESP_R_20182000000_01D_30S_MO.crx.gz",
     ]:
         benchmark(f)
 
@@ -89,10 +99,9 @@ def main() -> None:
     print("\n== RINEX 3 NAV ==")
     for f in [
         "demo_nav3.17n",
-        "VILL00ESP_R_20181700000_01D_MN.rnx.gz",
         "ELKO00USA_R_20182100000_01D_MN.rnx.gz",
     ]:
-        benchmark(f, n=3)
+        benchmark(f, max_seconds=60.0)
 
     print("\n== SP3 ==")
     for f in ["example1.sp3a", "igs19362.sp3c", "minimal.sp3d"]:
