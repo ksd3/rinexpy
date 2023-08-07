@@ -8,7 +8,7 @@ and dispatch to the right version-specific reader, mirroring
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 
 import xarray as xr

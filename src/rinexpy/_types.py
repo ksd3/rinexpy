@@ -12,26 +12,26 @@ from __future__ import annotations
 from datetime import datetime
 from io import StringIO, TextIOWrapper
 from pathlib import Path
-from typing import IO, TypeAlias, Union
+from typing import IO, TypeAlias
 
 #: Anything we accept as an input "RINEX file": a filesystem path (string or
 #: ``pathlib.Path``) or an in-memory text stream. ``IO[str]`` is the protocol
 #: from ``typing`` that covers both ``StringIO`` and ``TextIOWrapper``.
-FileLike: TypeAlias = Union[str, Path, StringIO, TextIOWrapper, IO[str]]
+FileLike: TypeAlias = str | Path | StringIO | TextIOWrapper | IO[str]
 
 #: A pair ``(start, stop)`` of inclusive datetime bounds, or ``None`` for "no
 #: limit". The pair may be passed as ISO 8601 strings; the API normalizes them
 #: to ``datetime`` objects via :func:`rinexpy._time.normalize_tlim`.
-TimeLimit: TypeAlias = Union[tuple[datetime, datetime], tuple[str, str], None]
+TimeLimit: TypeAlias = tuple[datetime, datetime] | tuple[str, str] | None
 
 #: A choice of GNSS systems to keep, expressed as a set of single-letter codes
 #: (``G``, ``R``, ``E``, ``C``, ``J``, ``S``, ``I``). ``None`` means "all".
-SystemSelection: TypeAlias = Union[set[str], frozenset[str], list[str], tuple[str, ...], str, None]
+SystemSelection: TypeAlias = set[str] | frozenset[str] | list[str] | tuple[str, ...] | str | None
 
 #: A choice of measurement types to keep, e.g. ``["L1C", "C1C"]``. Strings
 #: are matched as prefixes against the observation labels in the header. A
 #: bare string is treated as a one-element list. ``None`` means "all".
-MeasSelection: TypeAlias = Union[list[str], tuple[str, ...], str, None]
+MeasSelection: TypeAlias = list[str] | tuple[str, ...] | str | None
 
 __all__ = [
     "FileLike",

@@ -17,7 +17,6 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
-from pathlib import Path
 
 from .api import batch_convert, gettime, load
 from .headers import rinexheader
@@ -42,19 +41,21 @@ def build_parser() -> argparse.ArgumentParser:
     p_read.add_argument("file")
     p_read.add_argument("-o", "--out", help="write NetCDF to PATH (dir or .nc)")
     p_read.add_argument(
-        "-u", "--use", nargs="+", help="restrict to these GNSS systems",
+        "-u",
+        "--use",
+        nargs="+",
+        help="restrict to these GNSS systems",
         choices=list("CEGIJRS"),
     )
+    p_read.add_argument("-m", "--meas", nargs="+", help="restrict to these measurement labels")
     p_read.add_argument(
-        "-m", "--meas", nargs="+", help="restrict to these measurement labels"
-    )
-    p_read.add_argument(
-        "-t", "--tlim", nargs=2, metavar=("START", "STOP"),
+        "-t",
+        "--tlim",
+        nargs=2,
+        metavar=("START", "STOP"),
         help="restrict to this time window (ISO 8601)",
     )
-    p_read.add_argument(
-        "--useindicators", action="store_true", help="include LLI/SSI columns"
-    )
+    p_read.add_argument("--useindicators", action="store_true", help="include LLI/SSI columns")
     p_read.add_argument(
         "--strict",
         action="store_false",

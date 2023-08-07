@@ -110,9 +110,7 @@ def rinexobs3(
 
     with opener(fn) as f:
         hdr = obsheader3(f, use=use, meas=meas)
-        epochs, time_offsets = _walk_epochs(
-            f, hdr, tlim=tlim, interval=interval, verbose=verbose
-        )
+        epochs, time_offsets = _walk_epochs(f, hdr, tlim=tlim, interval=interval, verbose=verbose)
 
     data = _assemble_obs3(epochs, hdr, useindicators=useindicators)
     _attach_obs3_attrs(data, hdr, fn=fn, time_offsets=time_offsets)
@@ -321,18 +319,12 @@ def _assemble_obs3(
             buf[:, offset : offset + n_sv] = sys_data[sk][k]
             if useindicators:
                 if label[:2] in _LLI_PREFIXES:
-                    lbuf = var_lli.setdefault(
-                        f"{label}lli", np.full((n_t, n_sv_total), np.nan)
-                    )
+                    lbuf = var_lli.setdefault(f"{label}lli", np.full((n_t, n_sv_total), np.nan))
                     lbuf[:, offset : offset + n_sv] = sys_lli[sk][k]
-                sbuf = var_ssi.setdefault(
-                    f"{label}ssi", np.full((n_t, n_sv_total), np.nan)
-                )
+                sbuf = var_ssi.setdefault(f"{label}ssi", np.full((n_t, n_sv_total), np.nan))
                 sbuf[:, offset : offset + n_sv] = sys_ssi[sk][k]
 
-    data_vars: dict[str, tuple] = {
-        name: (("time", "sv"), arr) for name, arr in var_buffers.items()
-    }
+    data_vars: dict[str, tuple] = {name: (("time", "sv"), arr) for name, arr in var_buffers.items()}
     if useindicators:
         for name, arr in var_lli.items():
             data_vars[name] = (("time", "sv"), arr)
@@ -355,9 +347,7 @@ def _attach_obs3_attrs(
         data.attrs["interval"] = hdr["interval"]
     elif "time" in data.coords and data.time.size > 0:
         try:
-            data.attrs["interval"] = float(
-                np.median(np.diff(data.time) / np.timedelta64(1, "s"))
-            )
+            data.attrs["interval"] = float(np.median(np.diff(data.time) / np.timedelta64(1, "s")))
         except (TypeError, ValueError):
             data.attrs["interval"] = float("nan")
     else:

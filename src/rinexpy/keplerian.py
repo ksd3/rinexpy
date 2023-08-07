@@ -11,7 +11,7 @@ References
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import numpy as np
 import xarray as xr
@@ -93,9 +93,7 @@ def keplerian2ecef(
     ik = sv["Io"].values + sv["IDOT"].values * tk + dik
     rk = A * (1 - e * np.cos(Ek)) + drk
 
-    Omega = (
-        sv["Omega0"].values + (sv["OmegaDot"].values - _OMEGA_E) * tk - _OMEGA_E * toe
-    )
+    Omega = sv["Omega0"].values + (sv["OmegaDot"].values - _OMEGA_E) * tk - _OMEGA_E * toe
 
     cos_u = np.cos(uk)
     sin_u = np.sin(uk)
@@ -113,7 +111,3 @@ def keplerian2ecef(
 
 
 __all__ = ["keplerian2ecef"]
-
-
-# Marker-only delta to silence unused imports if the file is reformatted.
-_ = timedelta

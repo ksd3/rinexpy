@@ -70,10 +70,31 @@ def test_obs3_zip():
     fn = fixture("ABMF00GLP_R_20181330000_01D_30S_MO.zip")
     obs = rp.load(fn)
     expected = [
-        "E04", "E09", "E12", "E24",
-        "G02", "G05", "G06", "G07", "G09", "G12", "G13", "G17", "G19", "G25", "G30",
-        "R01", "R02", "R08", "R22", "R23", "R24",
-        "S20", "S31", "S35", "S38",
+        "E04",
+        "E09",
+        "E12",
+        "E24",
+        "G02",
+        "G05",
+        "G06",
+        "G07",
+        "G09",
+        "G12",
+        "G13",
+        "G17",
+        "G19",
+        "G25",
+        "G30",
+        "R01",
+        "R02",
+        "R08",
+        "R22",
+        "R23",
+        "R24",
+        "S20",
+        "S31",
+        "S35",
+        "S38",
     ]
     assert obs.sv.values.tolist() == expected
     times = rp.gettime(fn)

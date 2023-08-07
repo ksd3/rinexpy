@@ -20,30 +20,21 @@ def _padded(s: str) -> str:
 
 
 def test_rinex_version_obs2():
-    line = (
-        "     2.11           OBSERVATION DATA    M (MIXED)           "
-        "RINEX VERSION / TYPE"
-    )
+    line = "     2.11           OBSERVATION DATA    M (MIXED)           RINEX VERSION / TYPE"
     v, is_crinex = rinex_version(line)
     assert v == 2.11
     assert is_crinex is False
 
 
 def test_rinex_version_nav3():
-    line = (
-        "     3.04           N: GNSS NAV DATA    M: MIXED            "
-        "RINEX VERSION / TYPE"
-    )
+    line = "     3.04           N: GNSS NAV DATA    M: MIXED            RINEX VERSION / TYPE"
     v, is_crinex = rinex_version(line)
     assert v == 3.04
     assert is_crinex is False
 
 
 def test_rinex_version_crinex():
-    line = (
-        "1.0                 COMPACT RINEX FORMAT                    "
-        "CRINEX VERS   / TYPE"
-    )
+    line = "1.0                 COMPACT RINEX FORMAT                    CRINEX VERS   / TYPE"
     v, is_crinex = rinex_version(line)
     assert v == 1.0
     assert is_crinex is True

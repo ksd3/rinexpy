@@ -399,9 +399,7 @@ def navheader3(f: FileLike) -> dict[Hashable, Any]:
             bucket = hdr.setdefault(label, {})
             kind = content[:4].strip()
             n = 3 if kind == "GAL" else 4
-            bucket[kind] = [
-                fortran_float(content[5 + i * 12 : 5 + (i + 1) * 12]) for i in range(n)
-            ]
+            bucket[kind] = [fortran_float(content[5 + i * 12 : 5 + (i + 1) * 12]) for i in range(n)]
         elif label == "TIME SYSTEM CORR":
             bucket = hdr.setdefault(label, {})
             kind = content[:4].strip()
@@ -450,9 +448,7 @@ def rinexheader(fn: FileLike) -> dict[Hashable, Any]:
 
     if isinstance(fn, io.StringIO):
         fn.seek(0)
-    elif isinstance(fn, io.TextIOWrapper):
-        pass
-    elif hasattr(fn, "read"):
+    elif isinstance(fn, io.TextIOWrapper) or hasattr(fn, "read"):
         pass
     else:
         raise TypeError(f"unknown RINEX file type {type(fn).__name__}")

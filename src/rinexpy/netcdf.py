@@ -23,9 +23,7 @@ log = logging.getLogger(__name__)
 ENC = {"zlib": True, "complevel": 1, "fletcher32": True}
 
 
-def write_dataset(
-    ds: xr.Dataset, path: Path, *, group: str, overwrite: bool = False
-) -> Path:
+def write_dataset(ds: xr.Dataset, path: Path, *, group: str, overwrite: bool = False) -> Path:
     """Write a parsed RINEX dataset to a NetCDF4 file.
 
     Parameters
@@ -57,7 +55,7 @@ def write_dataset(
     if "time" in ds.coords and ds.time.dtype != "datetime64[ns]":
         ds = ds.assign_coords(time=ds.time.astype("datetime64[ns]"))
 
-    enc = {k: ENC for k in ds.data_vars}
+    enc = dict.fromkeys(ds.data_vars, ENC)
     ds.to_netcdf(path, group=group, mode=mode, encoding=enc, format="NETCDF4")
     return path
 

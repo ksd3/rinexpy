@@ -5,7 +5,6 @@ from __future__ import annotations
 import importlib.resources as ir
 from datetime import datetime
 
-import numpy as np
 import pytest
 
 import rinexpy as rp

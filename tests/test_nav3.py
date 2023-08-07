@@ -68,8 +68,16 @@ def test_nav3_mixed_full():
 def test_nav3_ionospheric_corr_gps():
     nav = rp.load(fixture("demo_nav3.17n"))
     assert nav.attrs["ionospheric_corr_GPS"] == approx(
-        [1.1176e-08, -1.4901e-08, -5.9605e-08, 1.1921e-07,
-         9.8304e04, -1.1469e05, -1.9661e05, 7.2090e05]
+        [
+            1.1176e-08,
+            -1.4901e-08,
+            -5.9605e-08,
+            1.1921e-07,
+            9.8304e04,
+            -1.1469e05,
+            -1.9661e05,
+            7.2090e05,
+        ]
     )
 
 

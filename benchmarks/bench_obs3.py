@@ -13,14 +13,13 @@ import warnings
 from pathlib import Path
 
 import georinex
+
 import rinexpy
 
 DATA = Path(__file__).resolve().parent.parent / "tests" / "data"
 
 
-def time_it(
-    fn, *args, n: int = 3, max_seconds: float = 30.0, **kwargs
-) -> float | None:
+def time_it(fn, *args, n: int = 3, max_seconds: float = 30.0, **kwargs) -> float | None:
     """Run ``fn(*args, **kwargs)`` up to ``n`` times; return median seconds.
 
     Returns None if the first call raised. Stops early once total elapsed
@@ -58,15 +57,14 @@ def benchmark(fixture: str, *, n: int = 3, max_seconds: float = 30.0) -> None:
         return
     if t_gx is None:
         print(
-            f"  {fixture:55s} {size_kb:7.0f} KB   "
-            f"georinex CRASHED   rinexpy {t_rp*1000:7.1f} ms"
+            f"  {fixture:55s} {size_kb:7.0f} KB   georinex CRASHED   rinexpy {t_rp * 1000:7.1f} ms"
         )
         return
     speedup = t_gx / t_rp if t_rp > 0 else float("inf")
     print(
         f"  {fixture:55s} {size_kb:7.0f} KB   "
-        f"georinex {t_gx*1000:8.1f} ms   "
-        f"rinexpy {t_rp*1000:8.1f} ms   {speedup:5.2f}x"
+        f"georinex {t_gx * 1000:8.1f} ms   "
+        f"rinexpy {t_rp * 1000:8.1f} ms   {speedup:5.2f}x"
     )
 
 

@@ -63,10 +63,7 @@ def test_open_bz2():
 
 
 def test_open_stringio_passthrough():
-    text = (
-        "     2.11           OBSERVATION DATA    M (MIXED)           "
-        "RINEX VERSION / TYPE\n"
-    )
+    text = "     2.11           OBSERVATION DATA    M (MIXED)           RINEX VERSION / TYPE\n"
     sio = io.StringIO(text)
     with opener(sio) as f:
         v = _peek_version(f)
@@ -74,6 +71,5 @@ def test_open_stringio_passthrough():
 
 
 def test_open_missing_file():
-    with pytest.raises(FileNotFoundError):
-        with opener("/no/such/file.10o"):
-            pass
+    with pytest.raises(FileNotFoundError), opener("/no/such/file.10o"):
+        pass

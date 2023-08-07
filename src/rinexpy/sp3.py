@@ -120,9 +120,7 @@ def load_sp3(fn: FileLike, outfn: Path | None = None) -> xr.Dataset:
             elif head == "V":
                 vel[i - 1] = (float(line[4:18]), float(line[18:32]), float(line[32:46]))
                 clock[i - 1, 1] = float(line[46:60])
-            elif line.startswith(("EP", "EV")):
-                continue
-            elif len(line) >= 4 and line[3] == "*":
+            elif line.startswith(("EP", "EV")) or (len(line) >= 4 and line[3] == "*"):
                 continue
             elif line.startswith("EOF"):
                 break

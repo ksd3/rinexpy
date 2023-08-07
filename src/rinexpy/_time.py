@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-import numpy as np
 import xarray as xr
 from dateutil.parser import parse as _date_parse
 

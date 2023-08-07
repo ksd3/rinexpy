@@ -209,9 +209,7 @@ def rinexsystem2(
 
             if fast:
                 if j >= times.size:
-                    raise IndexError(
-                        "fast-mode preallocation undersized; rerun with fast=False"
-                    )
+                    raise IndexError("fast-mode preallocation undersized; rerun with fast=False")
                 times[j] = t
 
             try:
@@ -273,9 +271,7 @@ def rinexsystem2(
     return obs
 
 
-def _decode_obs2_block(
-    blocks: list[str], n_obs: int, useindicators: bool
-) -> np.ndarray:
+def _decode_obs2_block(blocks: list[str], n_obs: int, useindicators: bool) -> np.ndarray:
     """Decode N concatenated 80*Nl_sv-byte SV blocks into a 2-D float array.
 
     Parameters
@@ -339,9 +335,7 @@ def _attach_obs_attrs(
         obs.attrs["interval"] = hdr["interval"]
     elif "time" in obs.coords:
         try:
-            obs.attrs["interval"] = float(
-                np.median(np.diff(obs.time) / np.timedelta64(1, "s"))
-            )
+            obs.attrs["interval"] = float(np.median(np.diff(obs.time) / np.timedelta64(1, "s")))
         except (TypeError, ValueError):
             pass
     else:
@@ -396,9 +390,7 @@ def _skip_header(f: IO[str]) -> None:
             return
 
 
-def _skip_block(
-    f: IO[str], line: str, nl_sv: int, sv: list[str] | None = None
-) -> None:
+def _skip_block(f: IO[str], line: str, nl_sv: int, sv: list[str] | None = None) -> None:
     """Skip an entire epoch's SV data block."""
     if sv is None:
         sv = _read_sv_list(f, line)

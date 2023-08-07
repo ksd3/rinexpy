@@ -67,9 +67,7 @@ def rinex_version(line: str) -> tuple[float | str, bool]:
     # SP3 files begin with '#' followed by the version letter.
     if line[0] == "#":
         if line[1] not in _SP3_VERSIONS:
-            raise ValueError(
-                f"SP3 versions handled: {sorted(_SP3_VERSIONS)}, got {line[1]!r}"
-            )
+            raise ValueError(f"SP3 versions handled: {sorted(_SP3_VERSIONS)}, got {line[1]!r}")
         return f"sp3{line[1]}", False
 
     # RINEX files have a standard 80-byte first line.

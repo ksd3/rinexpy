@@ -39,37 +39,87 @@ _STARTCOL = 3
 _FIELD_WIDTH = 19
 
 #: GLONASS fields that need km->m conversion to match RINEX 3 conventions.
-_GLO_M_FIELDS: frozenset[str] = frozenset(
-    {"X", "Y", "Z", "dX", "dY", "dZ", "dX2", "dY2", "dZ2"}
-)
+_GLO_M_FIELDS: frozenset[str] = frozenset({"X", "Y", "Z", "dX", "dY", "dZ", "dX2", "dY2", "dZ2"})
 
 #: Per-system NAV field names. The order is **load-bearing**: the values are
 #: positionally extracted from the raw ``D``-exponent stream.
 _FIELDS_BY_SYS: dict[str, list[str]] = {
     "G": [
-        "SVclockBias", "SVclockDrift", "SVclockDriftRate",
-        "IODE", "Crs", "DeltaN", "M0",
-        "Cuc", "Eccentricity", "Cus", "sqrtA",
-        "Toe", "Cic", "Omega0", "Cis",
-        "Io", "Crc", "omega", "OmegaDot",
-        "IDOT", "CodesL2", "GPSWeek", "L2Pflag",
-        "SVacc", "health", "TGD", "IODC",
-        "TransTime", "FitIntvl",
+        "SVclockBias",
+        "SVclockDrift",
+        "SVclockDriftRate",
+        "IODE",
+        "Crs",
+        "DeltaN",
+        "M0",
+        "Cuc",
+        "Eccentricity",
+        "Cus",
+        "sqrtA",
+        "Toe",
+        "Cic",
+        "Omega0",
+        "Cis",
+        "Io",
+        "Crc",
+        "omega",
+        "OmegaDot",
+        "IDOT",
+        "CodesL2",
+        "GPSWeek",
+        "L2Pflag",
+        "SVacc",
+        "health",
+        "TGD",
+        "IODC",
+        "TransTime",
+        "FitIntvl",
     ],
     "R": [
-        "SVclockBias", "SVrelFreqBias", "MessageFrameTime",
-        "X", "dX", "dX2", "health",
-        "Y", "dY", "dY2", "FreqNum",
-        "Z", "dZ", "dZ2", "AgeOpInfo",
+        "SVclockBias",
+        "SVrelFreqBias",
+        "MessageFrameTime",
+        "X",
+        "dX",
+        "dX2",
+        "health",
+        "Y",
+        "dY",
+        "dY2",
+        "FreqNum",
+        "Z",
+        "dZ",
+        "dZ2",
+        "AgeOpInfo",
     ],
     "E": [
-        "SVclockBias", "SVclockDrift", "SVclockDriftRate",
-        "IODnav", "Crs", "DeltaN", "M0",
-        "Cuc", "Eccentricity", "Cus", "sqrtA",
-        "Toe", "Cic", "Omega0", "Cis",
-        "Io", "Crc", "omega", "OmegaDot",
-        "IDOT", "DataSrc", "GALWeek", "SISA",
-        "health", "BGDe5a", "BGDe5b", "TransTime",
+        "SVclockBias",
+        "SVclockDrift",
+        "SVclockDriftRate",
+        "IODnav",
+        "Crs",
+        "DeltaN",
+        "M0",
+        "Cuc",
+        "Eccentricity",
+        "Cus",
+        "sqrtA",
+        "Toe",
+        "Cic",
+        "Omega0",
+        "Cis",
+        "Io",
+        "Crc",
+        "omega",
+        "OmegaDot",
+        "IDOT",
+        "DataSrc",
+        "GALWeek",
+        "SISA",
+        "health",
+        "BGDe5a",
+        "BGDe5b",
+        "TransTime",
     ],
 }
 
@@ -194,10 +244,7 @@ def _assemble_nav2(
                 data[k, it, sv_index[sv]] = float(raw[start : start + _FIELD_WIDTH])
 
     nav = xr.Dataset(
-        {
-            field: (("time", "sv"), data[i])
-            for i, field in enumerate(fields)
-        },
+        {field: (("time", "sv"), data[i]) for i, field in enumerate(fields)},
         coords={
             "time": times_unique.astype("datetime64[ns]"),
             "sv": sv_unique,

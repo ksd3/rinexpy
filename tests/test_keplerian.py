@@ -36,5 +36,5 @@ def test_keplerian_constants():
     """The module-level GM and OMEGA_E constants match the WGS-84 / GPS-ICD."""
     from rinexpy.keplerian import _GM, _OMEGA_E
 
-    assert _GM == approx(3.986004418e14)
-    assert _OMEGA_E == approx(7.2921151467e-5)
+    assert approx(3.986004418e14) == _GM
+    assert approx(7.2921151467e-5) == _OMEGA_E

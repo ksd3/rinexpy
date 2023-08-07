@@ -90,6 +90,11 @@ ignore = [
     "PLW2901",
     "B028",
     "SIM108",
+    "SIM105",  # try/except/pass is clearer than contextlib.suppress for short blocks
+    "PERF401", # list comprehension not always more readable than tight for loop
+    "PERF403", # dict comprehension not always more readable than tight for loop
+    "RUF005",  # iterable unpacking not always clearer than concat for short lists
+    "B905",    # zip(strict=...) is opt-in style; we already use it where it matters
 ]
 
 [tool.ruff.lint.isort]

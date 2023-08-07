@@ -26,9 +26,26 @@ def test_obs2_meas_continuation():
     """OBS2 file with > 10 obs types."""
     obs = rp.load(fixture("ab430140.18o.zip"), verbose=True)
     expected = {
-        "L1", "L2", "C1", "P2", "P1", "S1", "S2", "C2",
-        "L5", "C5", "S5", "L6", "C6", "S6",
-        "L7", "C7", "S7", "L8", "C8", "S8",
+        "L1",
+        "L2",
+        "C1",
+        "P2",
+        "P1",
+        "S1",
+        "S2",
+        "C2",
+        "L5",
+        "C5",
+        "S5",
+        "L6",
+        "C6",
+        "S6",
+        "L7",
+        "C7",
+        "S7",
+        "L8",
+        "C8",
+        "S8",
     }
     assert expected.issubset(set(obs.data_vars))
     assert rp.to_datetime(obs.time).size == 9
@@ -46,9 +63,7 @@ def test_obs2_meas_two_nonsequential():
     assert "L2" not in obs
     L1 = obs["L1"]
     assert L1.shape == (2, 14)
-    assert L1.sel(sv="G07").values == approx(
-        [118767195.32608, 133174968.81808]
-    )
+    assert L1.sel(sv="G07").values == approx([118767195.32608, 133174968.81808])
     S1 = obs["S1"]
     assert (S1.sel(sv="R23") == approx([39.0, 79.0])).all()
 
