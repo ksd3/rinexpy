@@ -81,6 +81,25 @@ def test_batch_convert(tmp_path):
     assert len(written) == 1
 
 
+def test_batch_convert_parallel(tmp_path):
+    """Two-worker pool converts the same files as the serial path."""
+    pytest.importorskip("netCDF4")
+    src_dir = fixture("demo.10o").parent
+    out = tmp_path
+    written = rp.batch_convert(src_dir, "demo.10o", out, workers=2)
+    assert len(written) == 1
+    assert written[0].is_file()
+
+
+def test_batch_convert_workers_zero_uses_all_cpus(tmp_path):
+    """workers=0 should pick os.cpu_count() and not error on small input."""
+    pytest.importorskip("netCDF4")
+    src_dir = fixture("demo.10o").parent
+    out = tmp_path
+    written = rp.batch_convert(src_dir, "minimal2.10o", out, workers=0)
+    assert len(written) == 1
+
+
 def test_gettime_obs2():
     times = rp.gettime(fixture("demo.10o"))
     assert times.size == 2

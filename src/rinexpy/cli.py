@@ -80,6 +80,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_conv.add_argument("-m", "--meas", nargs="+")
     p_conv.add_argument("--useindicators", action="store_true")
     p_conv.add_argument("--strict", action="store_false", dest="fast")
+    p_conv.add_argument(
+        "-j",
+        "--workers",
+        type=int,
+        default=None,
+        help="number of parallel worker processes (0 = all CPUs)",
+    )
 
     return parser
 
@@ -162,6 +169,7 @@ def _cmd_convert(ns: argparse.Namespace) -> int:
         useindicators=ns.useindicators,
         fast=ns.fast,
         verbose=ns.verbose,
+        workers=ns.workers,
     )
     print(f"wrote {len(written)} file(s)")
     return 0

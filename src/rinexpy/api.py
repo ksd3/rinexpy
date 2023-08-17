@@ -259,6 +259,7 @@ def batch_convert(
     meas: MeasSelection = None,
     verbose: bool = False,
     fast: bool = True,
+    workers: int | None = None,
 ) -> list[Path]:
     """Convert every file in ``path`` matching ``glob`` to NetCDF in ``out``.
 
@@ -277,34 +278,176 @@ def batch_convert(
         basename + ``.nc`` is used.
     use, tlim, useindicators, meas, verbose, fast:
         Forwarded to :func:`load`.
+    workers:
+        Number of worker processes. ``None`` (default) or ``1`` runs serially
+        in this process. ``> 1`` spawns a ``multiprocessing.Pool`` and
+        converts files concurrently. ``0`` or negative means "use all CPUs".
 
     Returns
     -------
     list[Path]
-        Paths that were written.
+        Paths that were written, in input order. Files that errored are
+        omitted (and the error is logged).
     """
     path = Path(path).expanduser()
     out_p = Path(out).expanduser()
+    files = sorted(f for f in path.glob(glob) if f.is_file())
+
+    if workers is None or workers == 1:
+        return _batch_serial(
+            files,
+            out_p,
+            use=use,
+            tlim=tlim,
+            useindicators=useindicators,
+            meas=meas,
+            verbose=verbose,
+            fast=fast,
+        )
+    return _batch_parallel(
+        files,
+        out_p,
+        workers=workers,
+        use=use,
+        tlim=tlim,
+        useindicators=useindicators,
+        meas=meas,
+        verbose=verbose,
+        fast=fast,
+    )
+
+
+def _batch_serial(
+    files: list[Path],
+    out_p: Path,
+    *,
+    use,
+    tlim,
+    useindicators,
+    meas,
+    verbose,
+    fast,
+) -> list[Path]:
+    """Convert ``files`` to NetCDF one after another in this process.
+
+    Used by :func:`batch_convert` when ``workers in {None, 1}``.
+    """
+    written: list[Path] = []
+    for fn in files:
+        result = _convert_one(
+            fn,
+            out_p,
+            use=use,
+            tlim=tlim,
+            useindicators=useindicators,
+            meas=meas,
+            verbose=verbose,
+            fast=fast,
+        )
+        if result is not None:
+            written.append(result)
+    return written
+
+
+def _batch_parallel(
+    files: list[Path],
+    out_p: Path,
+    *,
+    workers: int,
+    use,
+    tlim,
+    useindicators,
+    meas,
+    verbose,
+    fast,
+) -> list[Path]:
+    """Convert ``files`` in a ``multiprocessing.Pool`` of ``workers`` procs.
+
+    A ``workers`` value <= 0 maps to ``os.cpu_count()``. The worker
+    function is :func:`_convert_one`, which is module-level so it can be
+    pickled by ``multiprocessing.Pool.imap``.
+    """
+    import multiprocessing as mp
+    import os
+
+    if workers <= 0:
+        workers = os.cpu_count() or 1
+    if not files:
+        return []
+
+    # Build the per-file argument tuple once; the kwargs are shared.
+    job_args = [
+        (
+            fn,
+            out_p,
+            use,
+            tlim,
+            useindicators,
+            meas,
+            verbose,
+            fast,
+        )
+        for fn in files
+    ]
 
     written: list[Path] = []
-    for fn in path.glob(glob):
-        if not fn.is_file():
-            continue
-        try:
-            load(
-                fn,
-                out_p,
-                use=use,
-                tlim=tlim,
-                useindicators=useindicators,
-                meas=meas,
-                verbose=verbose,
-                fast=fast,
-            )
-            written.append(out_p / (fn.name + ".nc") if out_p.is_dir() else out_p)
-        except (ValueError, OSError) as e:
-            log.error("%s: %s", fn.name, e)
+    with mp.Pool(processes=min(workers, len(files))) as pool:
+        for result in pool.imap(_convert_one_unpacked, job_args):
+            if result is not None:
+                written.append(result)
     return written
+
+
+def _convert_one(
+    fn: Path,
+    out_p: Path,
+    *,
+    use,
+    tlim,
+    useindicators,
+    meas,
+    verbose,
+    fast,
+) -> Path | None:
+    """Convert a single ``fn`` to NetCDF in ``out_p``; log + swallow errors.
+
+    Returns the path of the written NetCDF, or ``None`` on error. Used as
+    the unit of work for both the serial and parallel batch paths.
+    """
+    try:
+        load(
+            fn,
+            out_p,
+            use=use,
+            tlim=tlim,
+            useindicators=useindicators,
+            meas=meas,
+            verbose=verbose,
+            fast=fast,
+        )
+    except (ValueError, OSError) as e:
+        log.error("%s: %s", fn.name, e)
+        return None
+    return out_p / (fn.name + ".nc") if out_p.is_dir() else out_p
+
+
+def _convert_one_unpacked(args: tuple) -> Path | None:
+    """Adapter that unpacks a positional tuple into ``_convert_one`` kwargs.
+
+    ``multiprocessing.Pool.imap`` only takes a single argument, so we
+    bundle the per-job tuple in :func:`_batch_parallel` and unpack here.
+    """
+    fn, out_p, use, tlim, useindicators, meas, verbose, fast = args
+    return _convert_one(
+        fn,
+        out_p,
+        use=use,
+        tlim=tlim,
+        useindicators=useindicators,
+        meas=meas,
+        verbose=verbose,
+        fast=fast,
+    )
 
 
 def _resolve_outfn(rinexfn: FileLike, out: Path | str | None) -> Path | None:
