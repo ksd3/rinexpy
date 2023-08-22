@@ -40,6 +40,10 @@ from .obs2 import obstime2, rinexobs2
 from .obs3 import obstime3, rinexobs3
 from .sp3 import load_sp3
 
+# Plotting helpers are an optional extra; do NOT import at top level so
+# the bare install stays matplotlib-free. Users import directly:
+#     from rinexpy.plots import timeseries
+
 __all__ = [
     "__version__",
     "batch_convert",
