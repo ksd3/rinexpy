@@ -34,6 +34,9 @@ netcdf = ["netCDF4>=1.6"]
 geo = ["pymap3d>=3.1"]
 plot = ["matplotlib>=3.8"]
 all = ["hatanaka>=2.7", "ncompress>=1.0.1", "netCDF4>=1.6", "pymap3d>=3.1", "matplotlib>=3.8"]
+jit = [
+    "numba>=0.60",
+]
 
 [project.scripts]
 rinexpy = "rinexpy.cli:main"

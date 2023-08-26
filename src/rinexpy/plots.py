@@ -208,9 +208,7 @@ def receiver_locations(locs) -> None:
         interval = loc.get("interval")
         color = _interval_color(interval)
         if interval is not None and np.isfinite(interval) and interval > 0:
-            ax.scatter(
-                loc.lon, loc.lat, s=1000.0 / interval, c=color, label=name
-            )
+            ax.scatter(loc.lon, loc.lat, s=1000.0 / interval, c=color, label=name)
         else:
             ax.scatter(loc.lon, loc.lat, c=color, label=name)
 

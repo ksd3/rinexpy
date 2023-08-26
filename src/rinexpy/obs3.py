@@ -30,6 +30,7 @@ from typing import IO, Any
 import numpy as np
 import xarray as xr
 
+from . import _jit
 from ._common import determine_time_system
 from ._io import opener
 from ._time import normalize_interval, parse_obs3_epoch
@@ -58,6 +59,7 @@ def rinexobs3(
     verbose: bool = False,
     fast: bool = False,
     interval: float | int | timedelta | None = None,
+    use_jit: bool | None = None,
 ) -> xr.Dataset:
     """Read a RINEX-3 OBS file into an ``xarray.Dataset``.
 
@@ -83,6 +85,12 @@ def rinexobs3(
     interval:
         Optional decimation: skip epochs closer than ``interval`` to the
         previous kept epoch.
+    use_jit:
+        If True, use the optional numba-jitted decoder from
+        :mod:`rinexpy._jit` (requires the ``jit`` extra). If ``None``
+        (default), follow the ``RINEXPY_USE_JIT`` environment variable.
+        Numba carries a ~1.5 s one-time JIT cost; the speedup is only
+        worth it on files with many epochs.
 
     Returns
     -------
@@ -112,7 +120,8 @@ def rinexobs3(
         hdr = obsheader3(f, use=use, meas=meas)
         epochs, time_offsets = _walk_epochs(f, hdr, tlim=tlim, interval=interval, verbose=verbose)
 
-    data = _assemble_obs3(epochs, hdr, useindicators=useindicators)
+    jit = _jit.is_enabled() if use_jit is None else (use_jit and _jit.is_available())
+    data = _assemble_obs3(epochs, hdr, useindicators=useindicators, use_jit=jit)
     _attach_obs3_attrs(data, hdr, fn=fn, time_offsets=time_offsets)
     return data
 
@@ -212,16 +221,60 @@ def _decode_sv_line(raw: str, n_obs: int) -> np.ndarray:
     return out
 
 
+def _batch_decode_jit(
+    epochs: list[tuple[datetime, list[str], list[str]]], f_max: int
+) -> np.ndarray:
+    """Concatenate every SV line in ``epochs``, encode once, decode in a single
+    numba call.
+
+    Returns
+    -------
+    np.ndarray
+        ``(total_sv_lines, f_max * 3)`` float64 array. The caller indexes
+        into this with a running ``line_idx`` counter.
+
+    Notes
+    -----
+    The big-batch shape is what makes the JIT path actually faster than
+    the pure-Python loop on real files. Per-call numba dispatch overhead
+    is ~50-100 µs; calling it once per file rather than once per SV
+    eliminates that as a bottleneck.
+    """
+    n_lines = sum(len(svs) for _, svs, _ in epochs)
+    if n_lines == 0:
+        return np.empty((0, f_max * 3), dtype=np.float64)
+
+    line_bytes = f_max * _CELL_WIDTH
+    flat = np.empty(n_lines * line_bytes, dtype=np.uint8)
+    flat.fill(32)  # ASCII space — emulates ljust to the per-line width
+
+    pos = 0
+    for _, _svs, raws in epochs:
+        for raw in raws:
+            n = min(len(raw), line_bytes)
+            flat[pos : pos + n] = np.frombuffer(
+                raw[:n].encode("ascii", errors="replace"), dtype=np.uint8
+            )
+            pos += line_bytes
+    return _jit.decode_obs_batch(flat, n_lines, f_max)
+
+
 def _assemble_obs3(
     epochs: list[tuple[datetime, list[str], list[str]]],
     hdr: Mapping[Hashable, Any],
     *,
     useindicators: bool,
+    use_jit: bool = False,
 ) -> xr.Dataset:
     """Build the final ``xarray.Dataset`` from the per-epoch buffers.
 
     The hot path: instead of ``xarray.merge`` per epoch, allocate dense
     arrays sized once and write into them with vectorised assignments.
+
+    When ``use_jit=True`` the per-cell ASCII parse runs through the
+    optional numba kernel from :mod:`rinexpy._jit` instead of the
+    pure-Python :func:`_decode_sv_line`. The numerical output is
+    bit-identical for well-formed RINEX-3 OBS data.
     """
     fields: dict[str, list[str]] = hdr["fields"]
     fields_ind: dict[str, Any] = hdr["fields_ind"]
@@ -271,17 +324,25 @@ def _assemble_obs3(
             sys_ssi[sk] = np.full((n_meas, n_t, n_sv), np.nan, dtype=float)
 
     # Single pass: decode each epoch's SVs into the dense buffers.
+    if use_jit:
+        decoded_per_line = _batch_decode_jit(epochs, f_max)
+    else:
+        decoded_per_line = None
+    line_idx = 0
     for i, (_t, svs, raws) in enumerate(epochs):
         for sv_label, raw in zip(svs, raws):
             sk = sv_label[0]
             if sk not in fields:
+                line_idx += 1
                 continue
-            decoded = _decode_sv_line(raw, f_max)
-            # decoded has shape (Fmax, 3): (value, LLI, SSI).
+            if decoded_per_line is not None:
+                decoded = decoded_per_line[line_idx].reshape(f_max, 3)
+            else:
+                decoded = _decode_sv_line(raw, f_max)
+            line_idx += 1
             ind = fields_ind[sk]
             if isinstance(ind, np.ndarray):
                 # boolean mask over Fmax*3 cells - reshape to (Fmax, 3) view.
-                # We restored the original cell shape so per-meas indexing works.
                 # ind is laid out as [val0, lli0, ssi0, val1, lli1, ssi1, ...]
                 mask_3 = ind.reshape(-1, 3)[:f_max, 0]
                 decoded = decoded[mask_3]
