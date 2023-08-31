@@ -41,6 +41,36 @@ def test_parse_obs3_epoch():
     assert parse_obs3_epoch(line) == datetime(2018, 5, 13, 1, 30, 0)
 
 
+def test_parse_obs3_epoch_ns_matches_python_datetime():
+    """The int-ns parser must agree with the datetime parser to nanosecond
+    precision on the same line."""
+    import numpy as np
+
+    from rinexpy._time import parse_obs3_epoch_ns
+
+    line = "> 2018 05 13 01 30 00.0500000  0 25"
+    ns = parse_obs3_epoch_ns(line)
+    dt = parse_obs3_epoch(line)
+    assert np.datetime64(ns, "ns") == np.datetime64(dt, "ns")
+
+
+def test_parse_obs3_epoch_ns_rejects_bad_line():
+    from rinexpy._time import parse_obs3_epoch_ns
+
+    with pytest.raises(ValueError):
+        parse_obs3_epoch_ns("X 2018 05 13 01 30 00.0000000  0 25")
+
+
+def test_datetime_to_ns_round_trip():
+    """``datetime_to_ns`` and ``parse_obs3_epoch_ns`` use the same algorithm."""
+    import numpy as np
+
+    from rinexpy._time import datetime_to_ns
+
+    dt = datetime(2018, 5, 13, 1, 30, 0)
+    assert np.datetime64(datetime_to_ns(dt), "ns") == np.datetime64(dt, "ns")
+
+
 def test_parse_obs3_epoch_microseconds():
     line = "> 2018 05 13 01 30 00.5000000  0 25"
     assert parse_obs3_epoch(line) == datetime(2018, 5, 13, 1, 30, 0, 500_000)

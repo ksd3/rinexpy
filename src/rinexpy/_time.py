@@ -102,6 +102,76 @@ def parse_obs3_epoch(line: str) -> datetime:
     )
 
 
+def _days_from_civil(y: int, m: int, d: int) -> int:
+    """Return integer days from 1970-01-01 to ``(y, m, d)``.
+
+    Implements Howard Hinnant's algorithm
+    (https://howardhinnant.github.io/date_algorithms.html). Faster than
+    constructing a Python ``date`` object when followed by an integer
+    arithmetic step that wants seconds-since-epoch.
+    """
+    if m <= 2:
+        y -= 1
+    era = y // 400
+    yoe = y - era * 400
+    doy = (153 * (m + (9 if m <= 2 else -3)) + 2) // 5 + d - 1
+    doe = yoe * 365 + yoe // 4 - yoe // 100 + doy
+    return era * 146097 + doe - 719468
+
+
+def parse_obs3_epoch_ns(line: str) -> int:
+    """Parse a RINEX-3 OBS epoch line directly into nanoseconds-since-1970.
+
+    This is the bulk-friendly companion to :func:`parse_obs3_epoch`: the
+    return is a plain ``int`` so callers can collect into a Python list
+    and convert with ``np.asarray(lst, dtype='int64').view('datetime64[ns]')``,
+    which is ~40x faster than ``np.array(lst, dtype='datetime64[ns]')``
+    on a list of ``datetime`` objects.
+
+    Parameters
+    ----------
+    line:
+        Full text of the RINEX-3 OBS epoch header line.
+
+    Returns
+    -------
+    int
+        Nanoseconds since the Unix epoch (1970-01-01T00:00:00 UTC).
+
+    Raises
+    ------
+    ValueError
+        If the line does not start with ``"> "``.
+    """
+    if not line.startswith("> "):
+        raise ValueError("RINEX 3 epoch line must begin with '> '")
+    y = int(line[2:6])
+    mo = int(line[7:9])
+    d = int(line[10:12])
+    h = int(line[13:15])
+    mi = int(line[16:18])
+    s = int(line[19:21])
+    try:
+        usec = int(float(line[19:29]) % 1 * 1_000_000)
+    except ValueError:
+        usec = 0
+    days = _days_from_civil(y, mo, d)
+    return (days * 86400 + h * 3600 + mi * 60 + s) * 1_000_000_000 + usec * 1000
+
+
+def datetime_to_ns(dt: datetime) -> int:
+    """Convert a Python ``datetime`` to nanoseconds-since-Unix-epoch.
+
+    Used by the readers to coerce user-supplied ``tlim`` bounds and
+    ``interval`` deltas into the integer space used by the int-based
+    parser path.
+    """
+    days = _days_from_civil(dt.year, dt.month, dt.day)
+    return (
+        days * 86400 + dt.hour * 3600 + dt.minute * 60 + dt.second
+    ) * 1_000_000_000 + dt.microsecond * 1000
+
+
 def parse_nav2_epoch(line: str) -> datetime:
     """Parse a RINEX-2 NAV epoch line into a ``datetime``.
 
@@ -291,6 +361,7 @@ def to_datetime(times):
 
 
 __all__ = [
+    "datetime_to_ns",
     "normalize_interval",
     "normalize_tlim",
     "parse_header_epoch",
@@ -298,5 +369,6 @@ __all__ = [
     "parse_nav3_epoch",
     "parse_obs2_epoch",
     "parse_obs3_epoch",
+    "parse_obs3_epoch_ns",
     "to_datetime",
 ]
