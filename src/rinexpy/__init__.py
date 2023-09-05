@@ -39,6 +39,7 @@ from .nav3 import navtime3, rinexnav3
 from .obs2 import obstime2, rinexobs2
 from .obs3 import obstime3, rinexobs3
 from .sp3 import load_sp3
+from .streaming import iter_obs3_epochs
 
 # Plotting helpers are an optional extra; do NOT import at top level so
 # the bare install stays matplotlib-free. Users import directly:
@@ -49,6 +50,7 @@ __all__ = [
     "batch_convert",
     "gettime",
     "globber",
+    "iter_obs3_epochs",
     "keplerian2ecef",
     "load",
     "load_sp3",
