@@ -49,12 +49,33 @@ rinexpy.load(path, *, use=None, tlim=None, meas=None,
              out=None, overwrite=False, verbose=False)
 rinexpy.rinexnav(path, *, use=None, tlim=None, ...)
 rinexpy.rinexobs(path, *, use=None, tlim=None, ...)
-rinexpy.batch_convert(path, glob, out, ...)
+rinexpy.batch_convert(path, glob, out, *, workers=None, ...)  # parallel
+rinexpy.iter_obs3_epochs(path, *, use=None, tlim=None, interval=None)  # streaming
 rinexpy.gettime(path)         # -> np.ndarray[datetime64]
 rinexpy.rinexheader(path)     # -> dict
 rinexpy.rinexinfo(path)       # -> {"version", "rinextype", "filetype", "systems"}
 rinexpy.load_sp3(path)
 rinexpy.keplerian2ecef(nav)   # -> (X, Y, Z)
+```
+
+For files larger than RAM:
+
+```python
+for time, ds in rinexpy.iter_obs3_epochs("huge.rnx.gz"):
+    process_one_epoch(ds)
+```
+
+For optional plots:
+
+```python
+from rinexpy.plots import timeseries  # requires the `plot` extra
+timeseries(rinexpy.load("foo.18o"))
+```
+
+For the numba-jitted hot path on huge OBS3 files:
+
+```python
+rinexpy.rinexobs(fn, use_jit=True)  # requires the `jit` extra; ~1.9x faster
 ```
 
 ## CLI
