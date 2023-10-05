@@ -110,7 +110,7 @@ def _build_axis(start: float, stop: float, step: float) -> np.ndarray:
     Handles the IONEX convention where ``lat1=87.5, lat2=-87.5, dlat=-2.5``
     yields a descending axis.
     """
-    n = int(round((stop - start) / step)) + 1
+    n = round((stop - start) / step) + 1
     return np.linspace(start, stop, n)
 
 

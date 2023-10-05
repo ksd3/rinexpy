@@ -53,7 +53,6 @@ def load_antex(fn: FileLike) -> list[dict[str, Any]]:
         cur: dict[str, Any] | None = None
         cur_freq: str | None = None
         zen1 = zen2 = dzen = None
-        n_az = 0
 
         for line in f:
             label = line[60:].strip()
@@ -80,9 +79,7 @@ def load_antex(fn: FileLike) -> list[dict[str, Any]]:
                 pass  # ignored; we count by walking blocks
             elif label == "START OF FREQUENCY":
                 cur_freq = line[3:6].strip()
-                cur["frequencies"][cur_freq] = {}
-                n_az = 0
-                cur["frequencies"][cur_freq]["pcv_rows"] = []
+                cur["frequencies"][cur_freq] = {"pcv_rows": []}
             elif label == "END OF FREQUENCY":
                 f_entry = cur["frequencies"][cur_freq]
                 if "noazi" in f_entry and f_entry["pcv_rows"]:
