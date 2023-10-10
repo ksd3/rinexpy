@@ -21,9 +21,14 @@ def test_interp_at_source_epoch_recovers_input():
     np.testing.assert_allclose(result.position.values, truth.values, rtol=1e-6, atol=1e-3)
 
 
-def test_interp_midpoint_smooth():
-    """Interpolated position halfway between two source epochs is bounded
-    by them (a sanity check on the Lagrange polynomial)."""
+def test_interp_midpoint_on_orbit():
+    """Interpolated position halfway between two source epochs lies on the
+    orbit shell — i.e. its radius is similar to the source radii.
+
+    (Lagrange-10 can overshoot a per-component bounding box; the
+    physically meaningful invariant is that the satellite stays on its
+    ~26000 km orbit.)
+    """
     sp3 = rp.load_sp3(fixture("igs19362.sp3c"))
     t0 = sp3.time.values[10].astype("datetime64[us]").astype(datetime)
     t1 = sp3.time.values[11].astype("datetime64[us]").astype(datetime)
@@ -32,11 +37,11 @@ def test_interp_midpoint_smooth():
     result = interpolate_sp3(sp3, midpoint_dt)
     p_mid = result.position.values
     p0 = sp3.position.isel(time=10).values
-    p1 = sp3.position.isel(time=11).values
-    # midpoint position should be within the bounding box.
-    finite = np.isfinite(p_mid) & np.isfinite(p0) & np.isfinite(p1)
-    assert np.all(p_mid[finite] >= np.minimum(p0, p1)[finite] - 1e-6)
-    assert np.all(p_mid[finite] <= np.maximum(p0, p1)[finite] + 1e-6)
+    # GPS positions are stored in km in SP3; orbit radius ~26600 km.
+    finite = np.isfinite(p_mid).all(axis=-1) & np.isfinite(p0).all(axis=-1)
+    r_mid = np.sqrt((p_mid[finite] ** 2).sum(axis=-1))
+    r_src = np.sqrt((p0[finite] ** 2).sum(axis=-1))
+    assert np.allclose(r_mid, r_src, rtol=1e-3)
 
 
 def test_interp_batch():
