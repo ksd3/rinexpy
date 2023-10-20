@@ -75,3 +75,27 @@ def test_receiver_locations_smoke():
 def test_receiver_locations_silent_on_wrong_type():
     receiver_locations({"not": "a frame"})  # type: ignore[arg-type]
     assert plt.get_fignums() == []
+
+
+def test_skyplot_smoke():
+    """Skyplot draws a figure for two SVs without crashing."""
+    import numpy as np
+
+    from rinexpy.plots import skyplot
+
+    az = np.linspace(0, 360, 50)
+    el = np.linspace(10, 80, 50)
+    skyplot({"G01": (az, el), "G02": (az + 90, el)}, title="test")
+    assert len(plt.get_fignums()) == 1
+
+
+def test_skyplot_below_horizon_dropped():
+    """SVs entirely below the elevation mask should not raise."""
+    import numpy as np
+
+    from rinexpy.plots import skyplot
+
+    az = np.linspace(0, 360, 10)
+    el = -np.ones(10)  # all underground
+    skyplot({"G99": (az, el)})
+    assert len(plt.get_fignums()) == 1

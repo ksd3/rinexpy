@@ -242,9 +242,56 @@ def _world_map_axes(fig):
     return ax
 
 
+def skyplot(
+    sv_az_el: dict[str, tuple[np.ndarray, np.ndarray]],
+    *,
+    elevation_mask_deg: float = 5.0,
+    title: str = "",
+):
+    """Polar skyplot of satellite trajectories above a receiver.
+
+    Parameters
+    ----------
+    sv_az_el:
+        Mapping from SV label (e.g. ``"G07"``) to ``(az_deg, el_deg)``
+        arrays for that SV's trajectory.
+    elevation_mask_deg:
+        Don't plot points below this elevation (default 5 degrees).
+    title:
+        Figure title.
+
+    Returns
+    -------
+    matplotlib.axes.Axes
+        The created polar axes (zenith at center, horizon at radius=1).
+    """
+    fig = plt.figure()
+    ax = fig.add_subplot(projection="polar")
+    ax.set_theta_zero_location("N")
+    ax.set_theta_direction(-1)
+    ax.set_rlim(0, 1)
+    ax.set_yticks([0.0, 0.333, 0.667, 1.0])
+    ax.set_yticklabels(["90", "60", "30", "0"])
+    for sv, (az, el) in sv_az_el.items():
+        az = np.asarray(az)
+        el = np.asarray(el)
+        mask = el >= elevation_mask_deg
+        if not mask.any():
+            continue
+        theta = np.radians(az[mask])
+        r = (90.0 - el[mask]) / 90.0
+        ax.plot(theta, r, label=sv)
+        # Mark the trajectory start with a small dot.
+        ax.plot(theta[0], r[0], "o", markersize=3)
+    if title:
+        ax.set_title(title)
+    return ax
+
+
 __all__ = [
     "navtimeseries",
     "obstimeseries",
     "receiver_locations",
+    "skyplot",
     "timeseries",
 ]
