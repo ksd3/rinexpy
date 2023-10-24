@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-import pytest
 from pytest import approx
 
 from rinexpy.geodesy import (
@@ -37,7 +36,7 @@ def test_azimuth_elevation_zenith():
     rx = lla_to_ecef(0, 0, 0)
     rx_arr = np.asarray(rx)
     sv = rx_arr * 4.16  # straight up at GPS altitude
-    az, el = azimuth_elevation(rx, sv)
+    _az, el = azimuth_elevation(rx, sv)
     assert el == approx(90, abs=1e-3)
 
 
