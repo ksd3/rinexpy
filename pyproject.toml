@@ -37,6 +37,9 @@ all = ["hatanaka>=2.7", "ncompress>=1.0.1", "netCDF4>=1.6", "pymap3d>=3.1", "mat
 jit = [
     "numba>=0.60",
 ]
+zarr = [
+    "zarr>=2.18",
+]
 
 [project.scripts]
 rinexpy = "rinexpy.cli:main"

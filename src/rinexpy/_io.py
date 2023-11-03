@@ -55,6 +55,24 @@ _MAGIC_LZW = b"\x1f\x9d"
 # notices when they're about to wait for a multi-hundred-MB read.
 _LARGE_FILE_THRESHOLD_BYTES = 100_000_000
 
+# Plain-text files this big or bigger get mmap'd instead of fully read.
+# Below this we just read() because the syscall overhead of mmap dominates.
+_MMAP_THRESHOLD_BYTES = 50_000_000
+
+
+def _mmap_text(path: Path) -> str:
+    """Return ``path`` decoded as ASCII, via ``mmap``.
+
+    Saves a copy through the heap on multi-GB plain-text files. Decode
+    is still required because Python text streams want ``str``, not
+    ``bytes``; the savings come from skipping the explicit ``read()``.
+    """
+    import mmap
+
+    with path.open("rb") as fp:
+        with mmap.mmap(fp.fileno(), 0, access=mmap.ACCESS_READ) as mm:
+            return mm[:].decode("ascii", errors="ignore")
+
 
 def _is_crinex_stream(stream: IO[str]) -> bool:
     """Peek at ``stream`` and return whether it begins with a CRINEX header.
@@ -185,6 +203,17 @@ def opener(fn: FileLike, *, header: bool = False) -> Iterator[IO[str]]:
         return
 
     # Plain text fallback — could still be Hatanaka CRINEX though.
+    if not header and finfo.st_size > _MMAP_THRESHOLD_BYTES:
+        # For really large local plain-text files, mmap saves the read()
+        # of the whole file into the heap — we get a virtual view that
+        # the OS pages in on demand.
+        text = _mmap_text(fn)
+        with io.StringIO(text) as f:
+            if _is_crinex_stream(f):
+                yield _decode_crinex(f)
+            else:
+                yield f
+        return
     with fn.open("r", encoding="ascii", errors="ignore") as f:
         if not header and _is_crinex_stream(f):
             yield _decode_crinex(f)
