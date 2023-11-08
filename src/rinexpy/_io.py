@@ -69,9 +69,8 @@ def _mmap_text(path: Path) -> str:
     """
     import mmap
 
-    with path.open("rb") as fp:
-        with mmap.mmap(fp.fileno(), 0, access=mmap.ACCESS_READ) as mm:
-            return mm[:].decode("ascii", errors="ignore")
+    with path.open("rb") as fp, mmap.mmap(fp.fileno(), 0, access=mmap.ACCESS_READ) as mm:
+        return mm[:].decode("ascii", errors="ignore")
 
 
 def _is_crinex_stream(stream: IO[str]) -> bool:
