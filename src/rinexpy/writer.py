@@ -79,12 +79,12 @@ def _format_obs3(obs: xr.Dataset) -> str:
             f"{3.04:9.2f}           OBSERVATION DATA    M (MIXED)",
         )
     )
-    out.append(_format_header_field("PGM / RUN BY / DATE", "rinexpy             rinexpy             "))
+    out.append(
+        _format_header_field("PGM / RUN BY / DATE", "rinexpy             rinexpy             ")
+    )
     if "position" in obs.attrs:
         x, y, z = obs.attrs["position"][:3]
-        out.append(
-            _format_header_field("APPROX POSITION XYZ", f"{x:14.4f}{y:14.4f}{z:14.4f}")
-        )
+        out.append(_format_header_field("APPROX POSITION XYZ", f"{x:14.4f}{y:14.4f}{z:14.4f}"))
     if obs.time.size:
         first = np.datetime64(obs.time.values[0], "us").astype(datetime)
         sys_name = obs.attrs.get("time_system", "GPS")
@@ -107,7 +107,7 @@ def _format_obs3(obs: xr.Dataset) -> str:
             fields_by_sys[sk].append(v)
     for sk in sys_letters:
         labels = fields_by_sys[sk]
-        cont = "".join(f" {l:<3}" for l in labels)
+        cont = "".join(f" {lab:<3}" for lab in labels)
         out.append(
             _format_header_field(
                 "SYS / # / OBS TYPES",
@@ -129,9 +129,7 @@ def _format_obs3(obs: xr.Dataset) -> str:
             sv
             for sj, sv in enumerate(svs)
             if any(
-                np.isfinite(arrs[v][ti, sj])
-                for v in fields
-                if v in fields_by_sys.get(sv[0], [])
+                np.isfinite(arrs[v][ti, sj]) for v in fields if v in fields_by_sys.get(sv[0], [])
             )
         ]
         if not present:
@@ -165,12 +163,12 @@ def _format_obs2(obs: xr.Dataset) -> str:
             f"{2.11:9.2f}           OBSERVATION DATA    M (MIXED)",
         )
     )
-    out.append(_format_header_field("PGM / RUN BY / DATE", "rinexpy             rinexpy             "))
+    out.append(
+        _format_header_field("PGM / RUN BY / DATE", "rinexpy             rinexpy             ")
+    )
     if "position" in obs.attrs:
         x, y, z = obs.attrs["position"][:3]
-        out.append(
-            _format_header_field("APPROX POSITION XYZ", f"{x:14.4f}{y:14.4f}{z:14.4f}")
-        )
+        out.append(_format_header_field("APPROX POSITION XYZ", f"{x:14.4f}{y:14.4f}{z:14.4f}"))
     if obs.time.size:
         first = np.datetime64(obs.time.values[0], "us").astype(datetime)
         sys_name = obs.attrs.get("time_system", "GPS")
@@ -185,11 +183,7 @@ def _format_obs2(obs: xr.Dataset) -> str:
     fields = [v for v in obs.data_vars if not v.endswith(("lli", "ssi"))]
     n_obs = len(fields)
     types_str = "".join(f"    {f:<2}" for f in fields)
-    out.append(
-        _format_header_field(
-            "# / TYPES OF OBSERV", f"{n_obs:6d}{types_str}"
-        )
-    )
+    out.append(_format_header_field("# / TYPES OF OBSERV", f"{n_obs:6d}{types_str}"))
     out.append(_format_header_field("END OF HEADER", ""))
 
     times = obs.time.values
