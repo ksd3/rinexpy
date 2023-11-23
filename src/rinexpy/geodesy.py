@@ -207,10 +207,92 @@ def klobuchar(
     return float(delay * 299_792_458.0)
 
 
+def standard_atmosphere(
+    altitude_m: float,
+) -> tuple[float, float, float]:
+    """Return ICAO standard atmosphere (T_kelvin, P_hPa, e_water_hPa) at altitude.
+
+    Parameters
+    ----------
+    altitude_m:
+        Geodetic altitude in meters.
+
+    Returns
+    -------
+    T, P, e:
+        Temperature in Kelvin, pressure in hPa, partial water-vapour
+        pressure in hPa. The water-vapour estimate is a coarse 50%-RH
+        default at the surface temperature.
+    """
+    # Standard atmosphere lapse: T = T0 - 6.5e-3 * h, P = P0 * (T/T0)^5.26
+    T0, P0 = 288.15, 1013.25
+    T = T0 - 6.5e-3 * altitude_m
+    P = P0 * (T / T0) ** 5.2561
+    # 50% RH saturation vapour pressure (Magnus formula).
+    es = 6.11 * 10 ** ((7.5 * (T - 273.15)) / (T - 35.85))
+    e = 0.5 * es
+    return T, P, e
+
+
+def saastamoinen(
+    el_deg: float,
+    altitude_m: float,
+    *,
+    pressure_hpa: float | None = None,
+    temperature_k: float | None = None,
+    humidity_e_hpa: float | None = None,
+) -> float:
+    """Saastamoinen tropospheric delay model in meters.
+
+    Parameters
+    ----------
+    el_deg:
+        Satellite elevation angle in degrees (must be > 0).
+    altitude_m:
+        Receiver altitude in meters above the WGS-84 ellipsoid.
+    pressure_hpa, temperature_k, humidity_e_hpa:
+        Surface pressure (hPa), temperature (K), and partial water-vapour
+        pressure (hPa). Any unspecified value is filled from
+        :func:`standard_atmosphere` at ``altitude_m``.
+
+    Returns
+    -------
+    float
+        Slant tropospheric delay in meters. Returns ``inf`` for elevations
+        at or below the horizon (the cot z term blows up).
+
+    Notes
+    -----
+    Implements the classical Saastamoinen (1972) wet+dry slant model:
+
+        d = (0.002277 / cos z) * [P + (1255/T + 0.05) * e - tan^2 z]
+
+    where z = 90 - el. Accurate to ~1 cm for el >= 15 degrees; the
+    elevation-mapping degenerates near the horizon (use Niell or VMF1
+    for el < 5 degrees in production).
+    """
+    if el_deg <= 0:
+        return float("inf")
+    T0, P0, e0 = standard_atmosphere(altitude_m)
+    P = pressure_hpa if pressure_hpa is not None else P0
+    T = temperature_k if temperature_k is not None else T0
+    e = humidity_e_hpa if humidity_e_hpa is not None else e0
+    z = np.radians(90.0 - el_deg)
+    cos_z = np.cos(z)
+    if cos_z <= 0:
+        return float("inf")
+    tan_z2 = np.tan(z) ** 2
+    return float(
+        0.002277 / cos_z * (P + (1255.0 / T + 0.05) * e - tan_z2)
+    )
+
+
 __all__ = [
     "azimuth_elevation",
     "dop",
     "ecef_to_lla",
     "klobuchar",
     "lla_to_ecef",
+    "saastamoinen",
+    "standard_atmosphere",
 ]

@@ -79,6 +79,38 @@ def test_dop_good_geometry():
     assert out["VDOP"] <= out["PDOP"]
 
 
+def test_saastamoinen_zenith_known_value():
+    """Saastamoinen at zenith (el=90, altitude=0) is ~2.3 m."""
+    from rinexpy.geodesy import saastamoinen
+
+    delay = saastamoinen(90, 0)
+    assert 2.2 < delay < 2.5
+
+
+def test_saastamoinen_low_elevation_larger():
+    from rinexpy.geodesy import saastamoinen
+
+    zenith = saastamoinen(90, 0)
+    low = saastamoinen(15, 0)
+    assert low > zenith * 3  # mapping factor at 15 deg ~ 3.86
+
+
+def test_saastamoinen_below_horizon_inf():
+    from rinexpy.geodesy import saastamoinen
+
+    assert saastamoinen(0, 0) == float("inf")
+    assert saastamoinen(-10, 0) == float("inf")
+
+
+def test_standard_atmosphere_sea_level():
+    from rinexpy.geodesy import standard_atmosphere
+
+    T, P, e = standard_atmosphere(0)
+    assert 287 < T < 290
+    assert 1010 < P < 1015
+    assert e > 0
+
+
 def test_klobuchar_meters_in_reasonable_range():
     """Iono delay at low elevation > delay at zenith, both positive."""
     alpha = (1e-8, 0, 0, 0)
