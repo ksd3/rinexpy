@@ -181,4 +181,112 @@ def _iter_tec_maps(f, header):
                 cur_lon_idx += 1
 
 
-__all__ = ["load_ionex"]
+def interp_tec(
+    ds: xr.Dataset,
+    lat_deg: float,
+    lon_deg: float,
+    epoch: datetime,
+) -> float:
+    """Bilinear-in-space, linear-in-time TEC interpolation in TECU.
+
+    Parameters
+    ----------
+    ds:
+        IONEX dataset from :func:`load_ionex`.
+    lat_deg, lon_deg:
+        Sub-ionospheric point geodetic latitude/longitude (degrees).
+    epoch:
+        Time at which to interpolate.
+
+    Returns
+    -------
+    float
+        Vertical TEC at the (lat, lon, t) point in TECU. Returns NaN
+        outside the ds's grid bounds.
+    """
+    target = np.datetime64(epoch, "ns")
+    times = ds.time.values
+    if target < times[0] or target > times[-1]:
+        return float("nan")
+    # Find bracketing time indices.
+    after = int(np.searchsorted(times, target))
+    before = max(0, after - 1)
+    if after >= times.size:
+        after = times.size - 1
+    if before == after:
+        w_t = 0.0
+    else:
+        dt_total = (times[after] - times[before]).astype("timedelta64[ns]").astype(float)
+        dt_partial = (target - times[before]).astype("timedelta64[ns]").astype(float)
+        w_t = 0.0 if dt_total == 0 else dt_partial / dt_total
+
+    lat_axis = ds.lat.values
+    lon_axis = ds.lon.values
+    if lat_deg < min(lat_axis) or lat_deg > max(lat_axis):
+        return float("nan")
+    if lon_deg < min(lon_axis) or lon_deg > max(lon_axis):
+        return float("nan")
+
+    # Bilinear: find bracketing lat/lon indices (axis may be descending).
+    lat_pos = np.argsort(np.abs(lat_axis - lat_deg))[:2]
+    lon_pos = np.argsort(np.abs(lon_axis - lon_deg))[:2]
+    la0, la1 = sorted(lat_pos)
+    lo0, lo1 = sorted(lon_pos)
+
+    w_la = (
+        0.0
+        if lat_axis[la1] == lat_axis[la0]
+        else (lat_deg - lat_axis[la0]) / (lat_axis[la1] - lat_axis[la0])
+    )
+    w_lo = (
+        0.0
+        if lon_axis[lo1] == lon_axis[lo0]
+        else (lon_deg - lon_axis[lo0]) / (lon_axis[lo1] - lon_axis[lo0])
+    )
+
+    def at(t_idx: int, la_idx: int, lo_idx: int) -> float:
+        return float(ds.tec.values[t_idx, la_idx, lo_idx])
+
+    def bilinear(t_idx: int) -> float:
+        v00 = at(t_idx, la0, lo0)
+        v01 = at(t_idx, la0, lo1)
+        v10 = at(t_idx, la1, lo0)
+        v11 = at(t_idx, la1, lo1)
+        v0 = v00 * (1 - w_lo) + v01 * w_lo
+        v1 = v10 * (1 - w_lo) + v11 * w_lo
+        return v0 * (1 - w_la) + v1 * w_la
+
+    v_before = bilinear(before)
+    v_after = bilinear(after)
+    return v_before * (1 - w_t) + v_after * w_t
+
+
+def slant_tec(vertical_tec_tecu: float, el_deg: float) -> float:
+    """Map vertical TEC to slant TEC for a satellite at elevation ``el_deg``.
+
+    Uses the standard thin-shell mapping function with ionosphere height
+    ~ 350 km (the IONEX default). Output is in TECU.
+
+    Parameters
+    ----------
+    vertical_tec_tecu:
+        Vertical TEC at the sub-ionospheric point.
+    el_deg:
+        Satellite elevation angle in degrees.
+
+    Returns
+    -------
+    float
+        Slant TEC in TECU.
+    """
+    if el_deg <= 0:
+        return float("inf")
+    z = np.radians(90.0 - el_deg)
+    earth_radius = 6371.0
+    iono_h = 350.0
+    sin_zp = np.sin(z) * earth_radius / (earth_radius + iono_h)
+    cos_zp = np.sqrt(1 - sin_zp**2)
+    return float(vertical_tec_tecu / cos_zp)
+
+
+__all__ = ["interp_tec", "load_ionex", "slant_tec"]

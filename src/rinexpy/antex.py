@@ -131,4 +131,98 @@ def _parse_atx_epoch(line: str) -> datetime | None:
         return None
 
 
-__all__ = ["load_antex"]
+def find_antenna(
+    entries: list[dict[str, Any]],
+    type_code: str,
+    *,
+    serial: str | None = None,
+    epoch: datetime | None = None,
+) -> dict[str, Any] | None:
+    """Find an ANTEX entry by type code (and optionally serial / epoch).
+
+    Parameters
+    ----------
+    entries:
+        List returned by :func:`load_antex`.
+    type_code:
+        Antenna model name (left-justified to 20 chars in ANTEX).
+    serial:
+        Optional serial number; ``""`` matches the generic (non-IGS-cal)
+        entry. ``None`` (the default) returns the first match by type.
+    epoch:
+        If given, prefer an entry whose ``valid_from`` <= epoch <=
+        ``valid_until``; ignore unbounded entries when a bounded match
+        exists.
+
+    Returns
+    -------
+    dict | None
+        The first matching entry, or ``None`` if no match.
+    """
+    candidates = [e for e in entries if e.get("type", "").rstrip() == type_code.rstrip()]
+    if serial is not None:
+        candidates = [e for e in candidates if e.get("serial", "").rstrip() == serial.rstrip()]
+    if not candidates:
+        return None
+    if epoch is None:
+        return candidates[0]
+    bounded = [
+        e
+        for e in candidates
+        if e.get("valid_from") and e["valid_from"] <= epoch
+        and (e.get("valid_until") is None or e["valid_until"] >= epoch)
+    ]
+    return (bounded or candidates)[0]
+
+
+def apply_antex_pcv(
+    entry: dict[str, Any],
+    freq_id: str,
+    el_deg: float,
+) -> float:
+    """Return the antenna PCV correction (m) for a single (frequency, elevation).
+
+    Parameters
+    ----------
+    entry:
+        ANTEX antenna entry from :func:`load_antex` (or :func:`find_antenna`).
+    freq_id:
+        Frequency label (e.g. ``"G01"``, ``"G02"``).
+    el_deg:
+        Satellite elevation angle in degrees.
+
+    Returns
+    -------
+    float
+        PCV correction in meters. Returns ``0.0`` when the requested
+        frequency is absent. Subtract this from the observed pseudorange
+        / carrier-phase to remove the antenna effect:
+
+        ::
+
+            corrected = observation - apply_antex_pcv(ant, "G01", el)
+
+    Notes
+    -----
+    Uses the NOAZI (azimuth-independent) PCV row interpolated linearly
+    in zenith angle. Real ANTEX users with azimuth-dependent grids
+    should reach into ``entry["frequencies"][freq]["pcv"]`` directly.
+    """
+    import numpy as np
+
+    f_entry = entry.get("frequencies", {}).get(freq_id)
+    if f_entry is None or "noazi" not in f_entry:
+        return 0.0
+    noazi = f_entry["noazi"]
+    n = noazi.size
+    # Assume ZEN1=0, ZEN2=90 (the universal IGS convention).
+    zen = 90.0 - el_deg
+    if zen < 0 or zen > 90:
+        return 0.0
+    grid = np.linspace(0.0, 90.0, n)
+    val_mm = float(np.interp(zen, grid, noazi))
+    # ANTEX values are in mm; convert to m.
+    return val_mm * 1e-3
+
+
+__all__ = ["apply_antex_pcv", "find_antenna", "load_antex"]

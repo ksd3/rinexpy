@@ -139,4 +139,53 @@ def load_clk(fn: FileLike) -> xr.Dataset:
     return ds
 
 
-__all__ = ["load_clk"]
+def interpolate_clk(
+    ds: xr.Dataset,
+    sv: str,
+    epoch: datetime,
+) -> float:
+    """Linearly interpolate the clock bias of one SV at an arbitrary epoch.
+
+    Parameters
+    ----------
+    ds:
+        Clock dataset from :func:`load_clk`.
+    sv:
+        Satellite label (e.g. ``"G07"``).
+    epoch:
+        Time at which to interpolate.
+
+    Returns
+    -------
+    float
+        Clock bias in seconds. Returns NaN outside the dataset's time
+        range or when the requested SV is absent.
+
+    Notes
+    -----
+    Linear interpolation is the IGS-recommended method for 5-minute
+    clock files (the products themselves are smoother than that to
+    sub-ns level). For 30-second clocks, linear is exact for nearby
+    queries.
+    """
+    if sv not in ds.sv.values:
+        return float("nan")
+    target = np.datetime64(epoch, "ns")
+    times = ds.time.values
+    if target < times[0] or target > times[-1]:
+        return float("nan")
+    after = int(np.searchsorted(times, target))
+    before = max(0, after - 1)
+    if after >= times.size:
+        after = times.size - 1
+    series = ds.bias.sel(sv=sv).values
+    if before == after:
+        return float(series[before])
+    span = (times[after] - times[before]).astype("timedelta64[ns]").astype(float)
+    if span == 0:
+        return float(series[before])
+    w = (target - times[before]).astype("timedelta64[ns]").astype(float) / span
+    return float(series[before] * (1 - w) + series[after] * w)
+
+
+__all__ = ["interpolate_clk", "load_clk"]
