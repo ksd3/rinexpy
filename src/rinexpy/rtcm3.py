@@ -110,13 +110,19 @@ def decode_message(msg_id: int, body: bytes) -> dict[str, Any]:
     ``{"msg_id": N, "payload_bytes": body}``.
     """
     decoders = {
+        1004: _decode_1004,
         1005: _decode_1005,
         1006: _decode_1006,
         1019: _decode_1019,
         1020: _decode_1020,
+        1033: _decode_1033,
     }
     if msg_id in decoders:
         return decoders[msg_id](body)
+    # MSM7 messages: 1077=GPS, 1087=GLO, 1097=GAL, 1107=SBAS, 1117=QZSS,
+    # 1127=BDS, 1137=NavIC. All share the same MSM header layout.
+    if msg_id in {1077, 1087, 1097, 1107, 1117, 1127, 1137}:
+        return _decode_msm_header(msg_id, body)
     return {"msg_id": msg_id, "payload_bytes": body}
 
 
@@ -198,6 +204,174 @@ def _decode_1020(body: bytes) -> dict[str, Any]:
     chan = _bits(body, bit, 5, signed=True) - 7
     bit += 5
     return {"msg_id": 1020, "sv": f"R{slot:02d}", "freq_channel": chan}
+
+
+def _decode_1004(body: bytes) -> dict[str, Any]:
+    """Extended L1+L2 GPS RTK observations.
+
+    We decode the message header (station, epoch time, sync, n_sat,
+    smoothed/divergence-free indicators) and the per-satellite L1/L2
+    fields (sat id, code, pseudorange, phase, lock time, ambiguity, CNR).
+
+    Returns a dict ``{"msg_id": 1004, "station_id", "tow_ms", "n_sat",
+    "satellites": [...]}``. Each satellite dict has ``sv``, ``L1_pr``,
+    ``L1_phase``, ``L2_pr``, ``L2_phase``, etc. in standard SI units.
+    """
+    bit = 12
+    sta_id = _bits(body, bit, 12)
+    bit += 12
+    tow_ms = _bits(body, bit, 30)
+    bit += 30
+    sync = _bits(body, bit, 1)
+    bit += 1
+    n_sat = _bits(body, bit, 5)
+    bit += 5
+    smooth = _bits(body, bit, 1)
+    bit += 1
+    smooth_iv = _bits(body, bit, 3)
+    bit += 3
+
+    sats = []
+    for _ in range(n_sat):
+        sat_id = _bits(body, bit, 6)
+        bit += 6
+        l1_code_ind = _bits(body, bit, 1)
+        bit += 1
+        l1_pr_raw = _bits(body, bit, 24)
+        bit += 24
+        l1_phase_diff = _bits(body, bit, 20, signed=True)
+        bit += 20
+        l1_lock = _bits(body, bit, 7)
+        bit += 7
+        l1_amb = _bits(body, bit, 8)
+        bit += 8
+        l1_cnr = _bits(body, bit, 8) * 0.25
+        bit += 8
+        l2_code_ind = _bits(body, bit, 2)
+        bit += 2
+        l2_pr_diff = _bits(body, bit, 14, signed=True)
+        bit += 14
+        l2_phase_diff = _bits(body, bit, 20, signed=True)
+        bit += 20
+        l2_lock = _bits(body, bit, 7)
+        bit += 7
+        l2_cnr = _bits(body, bit, 8) * 0.25
+        bit += 8
+
+        # Convert raw to SI per RTCM 3.x §3.5-3:
+        # L1 pseudorange = (l1_pr_raw * 0.02 + l1_amb * 299792.458) m
+        l1_pr_m = l1_pr_raw * 0.02 + l1_amb * 299_792.458
+        l1_phase_m = l1_pr_m + l1_phase_diff * 0.0005
+        l2_pr_m = l1_pr_m + l2_pr_diff * 0.02
+        l2_phase_m = l1_pr_m + l2_phase_diff * 0.0005
+
+        sats.append(
+            {
+                "sv": f"G{sat_id:02d}",
+                "L1_code_ind": l1_code_ind,
+                "L1_pr": l1_pr_m,
+                "L1_phase": l1_phase_m,
+                "L1_lock_time": l1_lock,
+                "L1_cnr_dbhz": l1_cnr,
+                "L2_code_ind": l2_code_ind,
+                "L2_pr": l2_pr_m,
+                "L2_phase": l2_phase_m,
+                "L2_lock_time": l2_lock,
+                "L2_cnr_dbhz": l2_cnr,
+            }
+        )
+
+    return {
+        "msg_id": 1004,
+        "station_id": sta_id,
+        "tow_ms": tow_ms,
+        "sync": sync,
+        "n_sat": n_sat,
+        "smoothing_indicator": smooth,
+        "smoothing_interval": smooth_iv,
+        "satellites": sats,
+    }
+
+
+def _decode_1033(body: bytes) -> dict[str, Any]:
+    """Receiver and antenna descriptor strings.
+
+    Six length-prefixed ASCII strings: antenna descriptor, antenna
+    serial, receiver type, receiver firmware, receiver serial.
+    """
+    bit = 12
+    sta_id = _bits(body, bit, 12)
+    bit += 12
+    out = {"msg_id": 1033, "station_id": sta_id}
+
+    def _read_str(field: str) -> None:
+        nonlocal bit
+        n = _bits(body, bit, 8)
+        bit += 8
+        chars = bytearray()
+        for _ in range(n):
+            chars.append(_bits(body, bit, 8))
+            bit += 8
+        out[field] = chars.decode("ascii", errors="ignore")
+
+    _read_str("antenna_descriptor")
+    bit += 8  # antenna setup ID
+    _read_str("antenna_serial")
+    _read_str("receiver_type")
+    _read_str("receiver_firmware")
+    _read_str("receiver_serial")
+    return out
+
+
+def _decode_msm_header(msg_id: int, body: bytes) -> dict[str, Any]:
+    """Decode the MSM (Multiple Signal Message) header.
+
+    All MSM7 message types (1077/1087/1097/1107/1117/1127/1137) share
+    this header layout, then differ in the per-satellite signal block.
+    We expose the SV mask and signal mask so the caller knows which
+    constellations + signals were present.
+    """
+    bit = 12
+    sta_id = _bits(body, bit, 12)
+    bit += 12
+    tow_ms = _bits(body, bit, 30)
+    bit += 30
+    sync = _bits(body, bit, 1)
+    bit += 1
+    iod = _bits(body, bit, 3)
+    bit += 3
+    bit += 7  # session time (reserved in MSM)
+    bit += 2  # clock steering
+    bit += 2  # external clock
+    smooth = _bits(body, bit, 1)
+    bit += 1
+    smooth_iv = _bits(body, bit, 3)
+    bit += 3
+    # 64-bit satellite mask
+    sv_mask_hi = _bits(body, bit, 32)
+    bit += 32
+    sv_mask_lo = _bits(body, bit, 32)
+    bit += 32
+    sv_mask = (sv_mask_hi << 32) | sv_mask_lo
+    # 32-bit signal mask
+    sig_mask = _bits(body, bit, 32)
+    bit += 32
+    n_sv = bin(sv_mask).count("1")
+    n_sig = bin(sig_mask).count("1")
+
+    return {
+        "msg_id": msg_id,
+        "station_id": sta_id,
+        "tow_ms": tow_ms,
+        "sync": sync,
+        "iod": iod,
+        "smoothing_indicator": smooth,
+        "smoothing_interval": smooth_iv,
+        "sv_mask": sv_mask,
+        "signal_mask": sig_mask,
+        "n_sv": n_sv,
+        "n_sig": n_sig,
+    }
 
 
 __all__ = ["PREAMBLE", "crc24q", "decode_message", "iter_messages"]

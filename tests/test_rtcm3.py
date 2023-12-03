@@ -75,3 +75,53 @@ def test_decode_message_dispatch_unknown():
     out = decode_message(7777, b"\x00" * 4)
     assert out["msg_id"] == 7777
     assert "payload_bytes" in out
+
+
+def test_decode_msm7_header():
+    """MSM7 (1077/1087/...) header decodes the SV/signal masks."""
+    bits = [
+        (123, 12),  # station id
+        (456_000, 30),  # tow_ms
+        (0, 1),  # sync
+        (0, 3),  # iod
+        (0, 7),  # session
+        (0, 2),  # clock steering
+        (0, 2),  # external clock
+        (0, 1),  # smooth indicator
+        (0, 3),  # smooth interval
+        (0xFFFFFFFF, 32),  # sv_mask hi (any sv 0..31)
+        (0x00000000, 32),  # sv_mask lo
+        (0b11, 32),  # signal_mask (2 signals)
+    ]
+    frame = _build_frame(1077, bits)
+    msgs = list(iter_messages(io.BytesIO(frame)))
+    assert msgs[0]["msg_id"] == 1077
+    assert msgs[0]["station_id"] == 123
+    assert msgs[0]["n_sv"] == 32
+    assert msgs[0]["n_sig"] == 2
+
+
+def test_decode_1033_strings():
+    """1033 round-trips short ASCII strings."""
+
+    def _str_bits(s: str) -> list[tuple[int, int]]:
+        out = [(len(s), 8)]
+        out += [(ord(c), 8) for c in s]
+        return out
+
+    bits = [
+        (10, 12),  # station id
+        *_str_bits("ANT_X"),
+        (0, 8),  # antenna setup ID
+        *_str_bits("S123"),
+        *_str_bits("RX_Y"),
+        *_str_bits("V1.0"),
+        *_str_bits("R456"),
+    ]
+    frame = _build_frame(1033, bits)
+    msgs = list(iter_messages(io.BytesIO(frame)))
+    out = msgs[0]
+    assert out["msg_id"] == 1033
+    assert out["antenna_descriptor"] == "ANT_X"
+    assert out["receiver_type"] == "RX_Y"
+    assert out["receiver_serial"] == "R456"

@@ -11,7 +11,6 @@ from rinexpy.antex import apply_antex_pcv, find_antenna, load_antex
 from rinexpy.clk import interpolate_clk, load_clk
 from rinexpy.ionex import interp_tec, load_ionex, slant_tec
 
-
 # ---------------------------------------------------------------------------
 # ANTEX application
 # ---------------------------------------------------------------------------
