@@ -34,9 +34,9 @@ __version__ = "0.1.0"
 from ._common import globber
 from ._io import opener
 from ._time import to_datetime
-from .antex import load_antex
+from .antex import apply_antex_pcv, find_antenna, load_antex
 from .api import batch_convert, gettime, load, rinexnav, rinexobs
-from .clk import load_clk
+from .clk import interpolate_clk, load_clk
 from .headers import (
     navheader2,
     navheader3,
@@ -46,7 +46,7 @@ from .headers import (
     rinexinfo,
 )
 from .interp import interpolate_sp3
-from .ionex import load_ionex
+from .ionex import interp_tec, load_ionex, slant_tec
 from .keplerian import keplerian2ecef
 from .nav2 import navtime2, rinexnav2
 from .nav3 import navtime3, rinexnav3
@@ -59,9 +59,13 @@ from .writer import to_rinex_obs
 
 __all__ = [
     "__version__",
+    "apply_antex_pcv",
     "batch_convert",
+    "find_antenna",
     "gettime",
     "globber",
+    "interp_tec",
+    "interpolate_clk",
     "interpolate_sp3",
     "iter_obs3_epochs",
     "keplerian2ecef",
@@ -87,6 +91,7 @@ __all__ = [
     "rinexobs",
     "rinexobs2",
     "rinexobs3",
+    "slant_tec",
     "spp_solve",
     "to_datetime",
     "to_rinex_obs",
