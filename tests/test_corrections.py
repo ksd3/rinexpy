@@ -61,6 +61,58 @@ def test_apply_antex_pcv_unknown_freq(atx):
 
 
 # ---------------------------------------------------------------------------
+# Azimuth-dependent ANTEX PCV
+# ---------------------------------------------------------------------------
+
+_ATX_AZI_SAMPLE = """\
+     1.4            M                                       ANTEX VERSION / SYST
+A                                                           PCV TYPE / REFANT
+   90.0                                                     DAZI
+                                                            END OF HEADER
+                                                            START OF ANTENNA
+TRM41249.00     NONE                                        TYPE / SERIAL NO
+     0.0  90.0  90.0                                        ZEN1 / ZEN2 / DZEN
+     1                                                      # OF FREQUENCIES
+   G01                                                      START OF FREQUENCY
+      0.50      0.50     60.00                              NORTH / EAST / UP
+   NOAZI    0.00    5.00
+     0.0    0.00    1.00
+    90.0    0.00    2.00
+   180.0    0.00    3.00
+   270.0    0.00    4.00
+   360.0    0.00    1.00
+   G01                                                      END OF FREQUENCY
+                                                            END OF ANTENNA
+"""
+
+
+@pytest.fixture
+def atx_azi(tmp_path):
+    p = tmp_path / "azi.atx"
+    p.write_text(_ATX_AZI_SAMPLE)
+    return load_antex(p)
+
+
+def test_antex_azimuth_dependent_grid(atx_azi):
+    """At az=90, zen=90 the grid value is 2 mm -> 0.002 m."""
+    val = apply_antex_pcv(atx_azi[0], "G01", 0.0, az_deg=90.0)
+    assert val == approx(0.002, abs=1e-9)
+
+
+def test_antex_azimuth_dependent_zenith_zero(atx_azi):
+    """At zen=0 (el=90), the value is 0 regardless of azimuth."""
+    val = apply_antex_pcv(atx_azi[0], "G01", 90.0, az_deg=45.0)
+    assert val == approx(0.0, abs=1e-9)
+
+
+def test_antex_azimuth_no_az_falls_back_to_noazi(atx_azi):
+    """When az_deg is None, the NOAZI row is used."""
+    val = apply_antex_pcv(atx_azi[0], "G01", 0.0)  # no az
+    # NOAZI[1] = 5.0 mm at zen=90
+    assert val == approx(0.005, abs=1e-9)
+
+
+# ---------------------------------------------------------------------------
 # IONEX application
 # ---------------------------------------------------------------------------
 

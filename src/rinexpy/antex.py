@@ -45,8 +45,15 @@ def load_antex(fn: FileLike) -> list[dict[str, Any]]:
 
     entries: list[dict[str, Any]] = []
     with opener(fn) as f:
-        # Skip header up to END OF HEADER.
+        # Read header for DAZI (azimuth step) and skip to END OF HEADER.
+        dazi = 0.0
         for line in f:
+            label = line[60:].strip()
+            if label == "DAZI":
+                try:
+                    dazi = float(line[0:8])
+                except ValueError:
+                    dazi = 0.0
             if "END OF HEADER" in line:
                 break
 
@@ -82,8 +89,17 @@ def load_antex(fn: FileLike) -> list[dict[str, Any]]:
                 cur["frequencies"][cur_freq] = {"pcv_rows": []}
             elif label == "END OF FREQUENCY":
                 f_entry = cur["frequencies"][cur_freq]
-                if "noazi" in f_entry and f_entry["pcv_rows"]:
+                if f_entry["pcv_rows"]:
                     f_entry["pcv"] = np.array(f_entry["pcv_rows"])
+                    # Build the azimuth axis from DAZI: rows are at
+                    # 0, DAZI, 2*DAZI, ... 360 (the spec wraps; we keep
+                    # both endpoints so callers can interp without modulo).
+                    if dazi > 0:
+                        n_az = int(round(360.0 / dazi)) + 1
+                        f_entry["azimuth_deg"] = np.linspace(0.0, 360.0, n_az)
+                    if zen1 is not None and zen2 is not None and dzen is not None:
+                        n_zen = int(round((zen2 - zen1) / dzen)) + 1
+                        f_entry["zenith_deg"] = np.linspace(zen1, zen2, n_zen)
                 f_entry.pop("pcv_rows", None)
                 cur_freq = None
             elif cur_freq is not None and label == "NORTH / EAST / UP":
@@ -179,8 +195,10 @@ def apply_antex_pcv(
     entry: dict[str, Any],
     freq_id: str,
     el_deg: float,
+    *,
+    az_deg: float | None = None,
 ) -> float:
-    """Return the antenna PCV correction (m) for a single (frequency, elevation).
+    """Return the antenna PCV correction (m) for a (frequency, az, el).
 
     Parameters
     ----------
@@ -190,6 +208,11 @@ def apply_antex_pcv(
         Frequency label (e.g. ``"G01"``, ``"G02"``).
     el_deg:
         Satellite elevation angle in degrees.
+    az_deg:
+        Optional satellite azimuth in degrees. If given AND the entry
+        has an azimuth-dependent ``pcv`` grid, the 2-D grid is
+        bilinearly interpolated. Otherwise (or for entries without a
+        ``DAZI`` step) the azimuth-independent ``noazi`` row is used.
 
     Returns
     -------
@@ -200,29 +223,69 @@ def apply_antex_pcv(
 
         ::
 
-            corrected = observation - apply_antex_pcv(ant, "G01", el)
-
-    Notes
-    -----
-    Uses the NOAZI (azimuth-independent) PCV row interpolated linearly
-    in zenith angle. Real ANTEX users with azimuth-dependent grids
-    should reach into ``entry["frequencies"][freq]["pcv"]`` directly.
+            corrected = observation - apply_antex_pcv(ant, "G01", el, az_deg=az)
     """
     import numpy as np
 
     f_entry = entry.get("frequencies", {}).get(freq_id)
-    if f_entry is None or "noazi" not in f_entry:
+    if f_entry is None:
         return 0.0
-    noazi = f_entry["noazi"]
-    n = noazi.size
-    # Assume ZEN1=0, ZEN2=90 (the universal IGS convention).
     zen = 90.0 - el_deg
     if zen < 0 or zen > 90:
         return 0.0
-    grid = np.linspace(0.0, 90.0, n)
+
+    # Azimuth-dependent path.
+    if (
+        az_deg is not None
+        and "pcv" in f_entry
+        and "azimuth_deg" in f_entry
+        and "zenith_deg" in f_entry
+    ):
+        az_axis = f_entry["azimuth_deg"]
+        zen_axis = f_entry["zenith_deg"]
+        grid = f_entry["pcv"]  # (n_az, n_zen)
+        if grid.shape == (az_axis.size, zen_axis.size):
+            val_mm = float(_bilinear(az_axis, zen_axis, grid, az_deg % 360.0, zen))
+            return val_mm * 1e-3
+
+    # NOAZI fallback.
+    if "noazi" not in f_entry:
+        return 0.0
+    noazi = f_entry["noazi"]
+    grid = (
+        f_entry["zenith_deg"]
+        if "zenith_deg" in f_entry
+        else np.linspace(0.0, 90.0, noazi.size)
+    )
     val_mm = float(np.interp(zen, grid, noazi))
-    # ANTEX values are in mm; convert to m.
     return val_mm * 1e-3
+
+
+def _bilinear(x_axis, y_axis, grid, x: float, y: float) -> float:
+    """Bilinear interpolation on a regular ``(x_axis, y_axis)`` grid.
+
+    Used by :func:`apply_antex_pcv` for the 2-D PCV table; kept as a
+    private helper because the only consumer is right above.
+    """
+    import numpy as np
+
+    x_idx = int(np.searchsorted(x_axis, x))
+    x_idx = max(1, min(x_axis.size - 1, x_idx))
+    x0, x1 = x_axis[x_idx - 1], x_axis[x_idx]
+    wx = 0.0 if x1 == x0 else (x - x0) / (x1 - x0)
+
+    y_idx = int(np.searchsorted(y_axis, y))
+    y_idx = max(1, min(y_axis.size - 1, y_idx))
+    y0, y1 = y_axis[y_idx - 1], y_axis[y_idx]
+    wy = 0.0 if y1 == y0 else (y - y0) / (y1 - y0)
+
+    v00 = grid[x_idx - 1, y_idx - 1]
+    v01 = grid[x_idx - 1, y_idx]
+    v10 = grid[x_idx, y_idx - 1]
+    v11 = grid[x_idx, y_idx]
+    v0 = v00 * (1 - wy) + v01 * wy
+    v1 = v10 * (1 - wy) + v11 * wy
+    return float(v0 * (1 - wx) + v1 * wx)
 
 
 __all__ = ["apply_antex_pcv", "find_antenna", "load_antex"]
