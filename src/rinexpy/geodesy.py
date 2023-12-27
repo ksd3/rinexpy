@@ -234,6 +234,94 @@ def standard_atmosphere(
     return T, P, e
 
 
+def niell_mapping(
+    el_deg: float,
+    lat_deg: float,
+    altitude_m: float,
+    doy: int,
+) -> tuple[float, float]:
+    """Niell (1996) hydrostatic + wet mapping functions.
+
+    Parameters
+    ----------
+    el_deg:
+        Satellite elevation in degrees (must be > 0).
+    lat_deg:
+        Receiver latitude in degrees.
+    altitude_m:
+        Receiver altitude in meters above sea level.
+    doy:
+        Day-of-year (1-366), used for the seasonal interpolation of the
+        hydrostatic coefficients.
+
+    Returns
+    -------
+    m_dry, m_wet : float
+        Dimensionless mapping factors. Multiply zenith dry/wet delays by
+        these to get slant delays. Returns ``(inf, inf)`` at or below the
+        horizon.
+
+    Notes
+    -----
+    Implements the Niell Mapping Function (NMF) as published in
+    A. Niell, "Global mapping functions for the atmosphere delay at
+    radio wavelengths", JGR 101 (B2), 1996. Independent of any external
+    weather grid, accurate to ~few mm at zenith and a few cm at el=5°.
+    """
+    if el_deg <= 0:
+        return float("inf"), float("inf")
+
+    # Latitude grid for hydrostatic coefficients (15° to 75°).
+    lat_grid = np.array([15.0, 30.0, 45.0, 60.0, 75.0])
+    # Average hydrostatic a, b, c (Niell Table 3).
+    a_avg = np.array([1.2769934e-3, 1.2683230e-3, 1.2465397e-3, 1.2196049e-3, 1.2045996e-3])
+    b_avg = np.array([2.9153695e-3, 2.9152299e-3, 2.9288445e-3, 2.9022565e-3, 2.9024912e-3])
+    c_avg = np.array([62.610505e-3, 62.837393e-3, 63.721774e-3, 63.824265e-3, 64.258455e-3])
+    # Amplitude (seasonal variation).
+    a_amp = np.array([0.0, 1.2709626e-5, 2.6523662e-5, 3.4000452e-5, 4.1202191e-5])
+    b_amp = np.array([0.0, 2.1414979e-5, 3.0160779e-5, 7.2562722e-5, 11.723375e-5])
+    c_amp = np.array([0.0, 9.0128400e-5, 4.3497037e-5, 84.795348e-5, 170.37206e-5])
+    # Wet coefficients (Niell Table 4).
+    aw = np.array([5.8021897e-4, 5.6794847e-4, 5.8118019e-4, 5.9727542e-4, 6.1641693e-4])
+    bw = np.array([1.4275268e-3, 1.5138625e-3, 1.4572752e-3, 1.5007428e-3, 1.7599082e-3])
+    cw = np.array([4.3472961e-2, 4.6729510e-2, 4.3908931e-2, 4.4626982e-2, 5.4736038e-2])
+
+    abs_lat = abs(lat_deg)
+    # Cosine seasonal factor: phase 28 (Northern hemisphere); subtract
+    # 0.5 yr for the Southern hemisphere.
+    phase = (doy - 28) / 365.25 * 2 * np.pi
+    if lat_deg < 0:
+        phase += np.pi
+    cos_phase = np.cos(phase)
+
+    a = np.interp(abs_lat, lat_grid, a_avg) - cos_phase * np.interp(abs_lat, lat_grid, a_amp)
+    b = np.interp(abs_lat, lat_grid, b_avg) - cos_phase * np.interp(abs_lat, lat_grid, b_amp)
+    c = np.interp(abs_lat, lat_grid, c_avg) - cos_phase * np.interp(abs_lat, lat_grid, c_amp)
+
+    el_rad = np.radians(el_deg)
+    sin_e = np.sin(el_rad)
+    m_dry_no_h = (1 + a / (1 + b / (1 + c))) / (sin_e + a / (sin_e + b / (sin_e + c)))
+
+    # Height correction (Niell §4): 6378.137 km Earth radius, 6378137 m
+    # height-correction coefficients.
+    a_h = 2.53e-5
+    b_h = 5.49e-3
+    c_h = 1.14e-3
+    dm = 1 / sin_e - (
+        (1 + a_h / (1 + b_h / (1 + c_h))) / (sin_e + a_h / (sin_e + b_h / (sin_e + c_h)))
+    )
+    m_dry = m_dry_no_h + dm * (altitude_m / 1000.0)
+
+    a_w = float(np.interp(abs_lat, lat_grid, aw))
+    b_w = float(np.interp(abs_lat, lat_grid, bw))
+    c_w = float(np.interp(abs_lat, lat_grid, cw))
+    m_wet = (1 + a_w / (1 + b_w / (1 + c_w))) / (
+        sin_e + a_w / (sin_e + b_w / (sin_e + c_w))
+    )
+
+    return float(m_dry), float(m_wet)
+
+
 def saastamoinen(
     el_deg: float,
     altitude_m: float,
@@ -293,6 +381,7 @@ __all__ = [
     "ecef_to_lla",
     "klobuchar",
     "lla_to_ecef",
+    "niell_mapping",
     "saastamoinen",
     "standard_atmosphere",
 ]

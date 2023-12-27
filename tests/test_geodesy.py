@@ -79,6 +79,30 @@ def test_dop_good_geometry():
     assert out["VDOP"] <= out["PDOP"]
 
 
+def test_niell_zenith_unity():
+    """At el=90 (zenith) both NMF factors are 1.0."""
+    from rinexpy.geodesy import niell_mapping
+
+    m_dry, m_wet = niell_mapping(90.0, 40.0, 100.0, 80)
+    assert m_dry == approx(1.0, abs=1e-6)
+    assert m_wet == approx(1.0, abs=1e-6)
+
+
+def test_niell_low_elevation_amplifies():
+    from rinexpy.geodesy import niell_mapping
+
+    m_dry_zen, _ = niell_mapping(90.0, 40.0, 100.0, 80)
+    m_dry_low, _ = niell_mapping(5.0, 40.0, 100.0, 80)
+    # Mapping factor at 5° elevation is ~10.
+    assert 9 < m_dry_low / m_dry_zen < 11
+
+
+def test_niell_below_horizon_inf():
+    from rinexpy.geodesy import niell_mapping
+
+    assert niell_mapping(0.0, 40.0, 100.0, 80) == (float("inf"), float("inf"))
+
+
 def test_saastamoinen_zenith_known_value():
     """Saastamoinen at zenith (el=90, altitude=0) is ~2.3 m."""
     from rinexpy.geodesy import saastamoinen
