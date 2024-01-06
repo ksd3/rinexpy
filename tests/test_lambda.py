@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import numpy as np
-from pytest import approx
 
 from rinexpy.lambda_ar import (
     bootstrap,
@@ -44,7 +43,7 @@ def test_ils_finds_known_truth():
     truth = np.array([5, -3, 2, 7])
     Q = np.eye(4) * 0.01
     a_float = truth + rng.normal(0, 0.05, size=4)
-    cands, sq, _ = integer_least_squares(a_float, Q, n_cands=2)
+    cands, _sq, _ = integer_least_squares(a_float, Q, n_cands=2)
     np.testing.assert_array_equal(cands[0], truth)
 
 

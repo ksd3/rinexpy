@@ -323,13 +323,20 @@ def _decode_1033(body: bytes) -> dict[str, Any]:
     return out
 
 
+_MSM_C = 299_792.458  # speed of light in m/ms
+
+
 def _decode_msm_header(msg_id: int, body: bytes) -> dict[str, Any]:
-    """Decode the MSM (Multiple Signal Message) header.
+    """Decode an MSM7 message: header + per-satellite + per-cell blocks.
 
     All MSM7 message types (1077/1087/1097/1107/1117/1127/1137) share
-    this header layout, then differ in the per-satellite signal block.
-    We expose the SV mask and signal mask so the caller knows which
-    constellations + signals were present.
+    the same wire layout. The output dict has the header fields plus a
+    ``satellites`` list (one dict per SV in the SV mask) and an
+    ``observations`` list (one dict per cell present in the cell mask).
+
+    Per-cell observations are fully converted to SI: pseudorange and
+    carrier phase in meters, Doppler in m/s, CNR in dB-Hz, lock time
+    indicator left as the raw 10-bit value.
     """
     bit = 12
     sta_id = _bits(body, bit, 12)
@@ -340,26 +347,27 @@ def _decode_msm_header(msg_id: int, body: bytes) -> dict[str, Any]:
     bit += 1
     iod = _bits(body, bit, 3)
     bit += 3
-    bit += 7  # session time (reserved in MSM)
+    bit += 7  # session time
     bit += 2  # clock steering
     bit += 2  # external clock
     smooth = _bits(body, bit, 1)
     bit += 1
     smooth_iv = _bits(body, bit, 3)
     bit += 3
-    # 64-bit satellite mask
     sv_mask_hi = _bits(body, bit, 32)
     bit += 32
     sv_mask_lo = _bits(body, bit, 32)
     bit += 32
     sv_mask = (sv_mask_hi << 32) | sv_mask_lo
-    # 32-bit signal mask
     sig_mask = _bits(body, bit, 32)
     bit += 32
-    n_sv = bin(sv_mask).count("1")
-    n_sig = bin(sig_mask).count("1")
 
-    return {
+    sv_indices = [i for i in range(64) if (sv_mask >> (63 - i)) & 1]
+    sig_indices = [i for i in range(32) if (sig_mask >> (31 - i)) & 1]
+    n_sv = len(sv_indices)
+    n_sig = len(sig_indices)
+
+    out: dict[str, Any] = {
         "msg_id": msg_id,
         "station_id": sta_id,
         "tow_ms": tow_ms,
@@ -371,7 +379,103 @@ def _decode_msm_header(msg_id: int, body: bytes) -> dict[str, Any]:
         "signal_mask": sig_mask,
         "n_sv": n_sv,
         "n_sig": n_sig,
+        "sv_indices": sv_indices,
+        "signal_indices": sig_indices,
     }
+
+    # Cell mask follows: n_sv * n_sig bits.
+    n_cells = n_sv * n_sig
+    if bit + n_cells > 8 * len(body):
+        out["payload_truncated"] = True
+        return out
+    cell_mask_bits = [
+        _bits(body, bit + i, 1) for i in range(n_cells)
+    ]
+    bit += n_cells
+    out["cell_mask"] = cell_mask_bits
+
+    # Per-satellite block (MSM7): for each SV, 8+4+10+14 = 36 bits.
+    sats: list[dict[str, Any]] = []
+    sat_letter = _MSM_SYSTEM_LETTER.get(msg_id, "?")
+    if bit + 36 * n_sv > 8 * len(body):
+        out["payload_truncated"] = True
+        return out
+    for k, sv_idx in enumerate(sv_indices):
+        rough_int_ms = _bits(body, bit, 8)
+        bit += 8
+        ext_info = _bits(body, bit, 4)
+        bit += 4
+        rough_mod_1ms = _bits(body, bit, 10)
+        bit += 10
+        rough_doppler = _bits(body, bit, 14, signed=True)
+        bit += 14
+        sats.append(
+            {
+                "sv": f"{sat_letter}{sv_idx + 1:02d}",
+                "rough_range_ms": rough_int_ms + rough_mod_1ms / 1024.0,
+                "extended_info": ext_info,
+                "rough_doppler_mps": rough_doppler,
+            }
+        )
+    out["satellites"] = sats
+
+    # Per-cell signal block: 80 bits per present cell.
+    bits_per_cell = 80
+    n_present = sum(cell_mask_bits)
+    if bit + bits_per_cell * n_present > 8 * len(body):
+        out["payload_truncated"] = True
+        return out
+
+    observations: list[dict[str, Any]] = []
+    for cell_idx, present in enumerate(cell_mask_bits):
+        if not present:
+            continue
+        sv_k = cell_idx // n_sig
+        sig_k = cell_idx % n_sig
+        sv_label = sats[sv_k]["sv"]
+        rough_ms = sats[sv_k]["rough_range_ms"]
+
+        fine_pr = _bits(body, bit, 20, signed=True)
+        bit += 20
+        fine_phase = _bits(body, bit, 24, signed=True)
+        bit += 24
+        lock = _bits(body, bit, 10)
+        bit += 10
+        halfcyc = _bits(body, bit, 1)
+        bit += 1
+        cnr = _bits(body, bit, 10) / 16.0
+        bit += 10
+        fine_dop = _bits(body, bit, 15, signed=True)
+        bit += 15
+
+        # Fine PR scale: 2^-29 ms; fine phase scale: 2^-31 ms.
+        pr_m = (rough_ms + fine_pr * 2**-29) * _MSM_C
+        phase_m = (rough_ms + fine_phase * 2**-31) * _MSM_C
+        observations.append(
+            {
+                "sv": sv_label,
+                "signal_index": sig_indices[sig_k],
+                "pseudorange_m": pr_m,
+                "phase_m": phase_m,
+                "lock_time": lock,
+                "half_cycle_ambiguity": halfcyc,
+                "cnr_dbhz": cnr,
+                "doppler_mps": fine_dop * 1e-4,
+            }
+        )
+    out["observations"] = observations
+    return out
+
+
+_MSM_SYSTEM_LETTER: dict[int, str] = {
+    1077: "G",
+    1087: "R",
+    1097: "E",
+    1107: "S",
+    1117: "J",
+    1127: "C",
+    1137: "I",
+}
 
 
 __all__ = ["PREAMBLE", "crc24q", "decode_message", "iter_messages"]

@@ -95,10 +95,10 @@ def load_antex(fn: FileLike) -> list[dict[str, Any]]:
                     # 0, DAZI, 2*DAZI, ... 360 (the spec wraps; we keep
                     # both endpoints so callers can interp without modulo).
                     if dazi > 0:
-                        n_az = int(round(360.0 / dazi)) + 1
+                        n_az = round(360.0 / dazi) + 1
                         f_entry["azimuth_deg"] = np.linspace(0.0, 360.0, n_az)
                     if zen1 is not None and zen2 is not None and dzen is not None:
-                        n_zen = int(round((zen2 - zen1) / dzen)) + 1
+                        n_zen = round((zen2 - zen1) / dzen) + 1
                         f_entry["zenith_deg"] = np.linspace(zen1, zen2, n_zen)
                 f_entry.pop("pcv_rows", None)
                 cur_freq = None

@@ -77,8 +77,38 @@ def test_decode_message_dispatch_unknown():
     assert "payload_bytes" in out
 
 
-def test_decode_msm7_header():
-    """MSM7 (1077/1087/...) header decodes the SV/signal masks."""
+def test_decode_msm7_header_only():
+    """MSM7 header masks decode correctly even with no cell payload.
+
+    When the body is too short for the cell/sat/obs blocks we just set
+    ``payload_truncated=True`` and return what we've parsed so far.
+    """
+    bits = [
+        (123, 12),
+        (456_000, 30),
+        (0, 1),
+        (0, 3),
+        (0, 7),
+        (0, 2),
+        (0, 2),
+        (0, 1),
+        (0, 3),
+        (0xFFFFFFFF, 32),
+        (0x00000000, 32),
+        (0b11, 32),
+    ]
+    frame = _build_frame(1077, bits)
+    msgs = list(iter_messages(io.BytesIO(frame)))
+    assert msgs[0]["msg_id"] == 1077
+    assert msgs[0]["station_id"] == 123
+    assert msgs[0]["n_sv"] == 32
+    assert msgs[0]["n_sig"] == 2
+
+
+def test_decode_msm7_full_with_one_cell():
+    """A 1-SV / 1-signal / 1-cell MSM7 fully decodes per-cell observation."""
+    sv_mask = 1 << 63  # SV index 0 -> G01
+    sig_mask = 1 << 31  # signal index 0
     bits = [
         (123, 12),  # station id
         (456_000, 30),  # tow_ms
@@ -89,16 +119,36 @@ def test_decode_msm7_header():
         (0, 2),  # external clock
         (0, 1),  # smooth indicator
         (0, 3),  # smooth interval
-        (0xFFFFFFFF, 32),  # sv_mask hi (any sv 0..31)
-        (0x00000000, 32),  # sv_mask lo
-        (0b11, 32),  # signal_mask (2 signals)
+        (sv_mask >> 32, 32),
+        (sv_mask & 0xFFFFFFFF, 32),
+        (sig_mask, 32),
+        (1, 1),  # cell mask: present
+        # Per-satellite block (8 + 4 + 10 + 14 = 36 bits).
+        (10, 8),  # rough int ms = 10
+        (0, 4),  # ext info
+        (512, 10),  # rough mod 1 ms (mid-range)
+        (0, 14),  # rough doppler
+        # Per-cell block (80 bits).
+        (1000, 20),  # fine PR
+        (2000, 24),  # fine phase
+        (5, 10),  # lock time indicator
+        (0, 1),  # half-cycle ambiguity
+        (480, 10),  # CNR raw -> 30.0 dB-Hz
+        (100, 15),  # fine doppler
     ]
     frame = _build_frame(1077, bits)
     msgs = list(iter_messages(io.BytesIO(frame)))
-    assert msgs[0]["msg_id"] == 1077
-    assert msgs[0]["station_id"] == 123
-    assert msgs[0]["n_sv"] == 32
-    assert msgs[0]["n_sig"] == 2
+    msg = msgs[0]
+    assert msg["n_sv"] == 1
+    assert msg["n_sig"] == 1
+    assert msg["satellites"][0]["sv"] == "G01"
+    assert len(msg["observations"]) == 1
+    obs = msg["observations"][0]
+    assert obs["sv"] == "G01"
+    assert obs["cnr_dbhz"] == 30.0
+    # rough_ms = 10 + 512/1024 = 10.5 -> ~3.15e6 m
+    assert 3.1e6 < obs["pseudorange_m"] < 3.2e6
+    assert 3.1e6 < obs["phase_m"] < 3.2e6
 
 
 def test_decode_1033_strings():
