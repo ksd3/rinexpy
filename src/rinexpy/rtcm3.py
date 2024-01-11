@@ -400,7 +400,7 @@ def _decode_msm_header(msg_id: int, body: bytes) -> dict[str, Any]:
     if bit + 36 * n_sv > 8 * len(body):
         out["payload_truncated"] = True
         return out
-    for k, sv_idx in enumerate(sv_indices):
+    for sv_idx in sv_indices:
         rough_int_ms = _bits(body, bit, 8)
         bit += 8
         ext_info = _bits(body, bit, 4)
