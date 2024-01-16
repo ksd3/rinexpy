@@ -105,6 +105,52 @@ def test_decode_msm7_header_only():
     assert msgs[0]["n_sig"] == 2
 
 
+def test_decode_msm4_full_with_one_cell():
+    """A 1-SV / 1-signal / 1-cell MSM4 (1074) decodes per-cell observation."""
+    sv_mask = 1 << 63  # SV index 0 -> G01
+    sig_mask = 1 << 31
+    bits = [
+        (123, 12),
+        (456_000, 30),
+        (0, 1),
+        (0, 3),
+        (0, 7),
+        (0, 2),
+        (0, 2),
+        (0, 1),
+        (0, 3),
+        (sv_mask >> 32, 32),
+        (sv_mask & 0xFFFFFFFF, 32),
+        (sig_mask, 32),
+        (1, 1),  # cell mask: 1 cell present
+        # Per-satellite (36 bits).
+        (10, 8),
+        (0, 4),
+        (512, 10),
+        (0, 14),
+        # Per-cell MSM4 (15+22+4+1+6 = 48 bits).
+        (1000, 15),  # fine PR (signed)
+        (2000, 22),  # fine phase
+        (5, 4),  # lock
+        (0, 1),  # half-cycle
+        (45, 6),  # CNR raw (1 dB-Hz scale) -> 45 dB-Hz
+    ]
+    frame = _build_frame(1074, bits)
+    msgs = list(iter_messages(io.BytesIO(frame)))
+    msg = msgs[0]
+    assert msg["msg_id"] == 1074
+    assert msg["satellites"][0]["sv"] == "G01"
+    assert len(msg["observations"]) == 1
+    obs = msg["observations"][0]
+    assert obs["cnr_dbhz"] == 45.0
+    # MSM4 has no Doppler.
+    import math
+
+    assert math.isnan(obs["doppler_mps"])
+    # Pseudorange ~ rough 10.5 ms * c
+    assert 3.1e6 < obs["pseudorange_m"] < 3.2e6
+
+
 def test_decode_msm7_full_with_one_cell():
     """A 1-SV / 1-signal / 1-cell MSM7 fully decodes per-cell observation."""
     sv_mask = 1 << 63  # SV index 0 -> G01

@@ -119,10 +119,14 @@ def decode_message(msg_id: int, body: bytes) -> dict[str, Any]:
     }
     if msg_id in decoders:
         return decoders[msg_id](body)
+    # MSM4 messages: 1074=GPS, 1084=GLO, 1094=GAL, 1104=SBAS, 1114=QZSS,
+    # 1124=BDS, 1134=NavIC. Reduced-precision per-cell layout (no Doppler).
+    if msg_id in {1074, 1084, 1094, 1104, 1114, 1124, 1134}:
+        return _decode_msm_header(msg_id, body, msm_kind=4)
     # MSM7 messages: 1077=GPS, 1087=GLO, 1097=GAL, 1107=SBAS, 1117=QZSS,
-    # 1127=BDS, 1137=NavIC. All share the same MSM header layout.
+    # 1127=BDS, 1137=NavIC. Full-precision per-cell layout.
     if msg_id in {1077, 1087, 1097, 1107, 1117, 1127, 1137}:
-        return _decode_msm_header(msg_id, body)
+        return _decode_msm_header(msg_id, body, msm_kind=7)
     return {"msg_id": msg_id, "payload_bytes": body}
 
 
@@ -326,17 +330,18 @@ def _decode_1033(body: bytes) -> dict[str, Any]:
 _MSM_C = 299_792.458  # speed of light in m/ms
 
 
-def _decode_msm_header(msg_id: int, body: bytes) -> dict[str, Any]:
-    """Decode an MSM7 message: header + per-satellite + per-cell blocks.
+def _decode_msm_header(msg_id: int, body: bytes, *, msm_kind: int = 7) -> dict[str, Any]:
+    """Decode an MSM4 or MSM7 message: header + per-satellite + per-cell blocks.
 
-    All MSM7 message types (1077/1087/1097/1107/1117/1127/1137) share
-    the same wire layout. The output dict has the header fields plus a
-    ``satellites`` list (one dict per SV in the SV mask) and an
-    ``observations`` list (one dict per cell present in the cell mask).
+    All MSM message types share the header. MSM4 (1074/1084/.../1134)
+    uses a reduced-precision per-cell layout (15+22+4+1+6 = 48 bits per
+    cell, no Doppler). MSM7 (1077/1087/.../1137) uses the full-precision
+    layout (20+24+10+1+10+15 = 80 bits per cell).
 
-    Per-cell observations are fully converted to SI: pseudorange and
-    carrier phase in meters, Doppler in m/s, CNR in dB-Hz, lock time
-    indicator left as the raw 10-bit value.
+    The output dict has the header fields plus a ``satellites`` list
+    (one dict per SV in the SV mask) and an ``observations`` list (one
+    dict per cell present in the cell mask). All observations are in
+    SI units regardless of MSM kind.
     """
     bit = 12
     sta_id = _bits(body, bit, 12)
@@ -419,8 +424,8 @@ def _decode_msm_header(msg_id: int, body: bytes) -> dict[str, Any]:
         )
     out["satellites"] = sats
 
-    # Per-cell signal block: 80 bits per present cell.
-    bits_per_cell = 80
+    # Per-cell signal block.
+    bits_per_cell = 80 if msm_kind == 7 else 48
     n_present = sum(cell_mask_bits)
     if bit + bits_per_cell * n_present > 8 * len(body):
         out["payload_truncated"] = True
@@ -435,22 +440,40 @@ def _decode_msm_header(msg_id: int, body: bytes) -> dict[str, Any]:
         sv_label = sats[sv_k]["sv"]
         rough_ms = sats[sv_k]["rough_range_ms"]
 
-        fine_pr = _bits(body, bit, 20, signed=True)
-        bit += 20
-        fine_phase = _bits(body, bit, 24, signed=True)
-        bit += 24
-        lock = _bits(body, bit, 10)
-        bit += 10
-        halfcyc = _bits(body, bit, 1)
-        bit += 1
-        cnr = _bits(body, bit, 10) / 16.0
-        bit += 10
-        fine_dop = _bits(body, bit, 15, signed=True)
-        bit += 15
+        if msm_kind == 7:
+            fine_pr = _bits(body, bit, 20, signed=True)
+            bit += 20
+            fine_phase = _bits(body, bit, 24, signed=True)
+            bit += 24
+            lock = _bits(body, bit, 10)
+            bit += 10
+            halfcyc = _bits(body, bit, 1)
+            bit += 1
+            cnr = _bits(body, bit, 10) / 16.0
+            bit += 10
+            fine_dop = _bits(body, bit, 15, signed=True)
+            bit += 15
+            # Fine PR scale: 2^-29 ms; fine phase scale: 2^-31 ms.
+            pr_m = (rough_ms + fine_pr * 2**-29) * _MSM_C
+            phase_m = (rough_ms + fine_phase * 2**-31) * _MSM_C
+            doppler_mps = fine_dop * 1e-4
+        else:
+            # MSM4: 15+22+4+1+6 bits, no fine Doppler.
+            fine_pr = _bits(body, bit, 15, signed=True)
+            bit += 15
+            fine_phase = _bits(body, bit, 22, signed=True)
+            bit += 22
+            lock = _bits(body, bit, 4)
+            bit += 4
+            halfcyc = _bits(body, bit, 1)
+            bit += 1
+            cnr = float(_bits(body, bit, 6))
+            bit += 6
+            # MSM4 PR scale: 2^-24 ms; phase scale: 2^-29 ms.
+            pr_m = (rough_ms + fine_pr * 2**-24) * _MSM_C
+            phase_m = (rough_ms + fine_phase * 2**-29) * _MSM_C
+            doppler_mps = float("nan")
 
-        # Fine PR scale: 2^-29 ms; fine phase scale: 2^-31 ms.
-        pr_m = (rough_ms + fine_pr * 2**-29) * _MSM_C
-        phase_m = (rough_ms + fine_phase * 2**-31) * _MSM_C
         observations.append(
             {
                 "sv": sv_label,
@@ -460,7 +483,7 @@ def _decode_msm_header(msg_id: int, body: bytes) -> dict[str, Any]:
                 "lock_time": lock,
                 "half_cycle_ambiguity": halfcyc,
                 "cnr_dbhz": cnr,
-                "doppler_mps": fine_dop * 1e-4,
+                "doppler_mps": doppler_mps,
             }
         )
     out["observations"] = observations
@@ -468,6 +491,15 @@ def _decode_msm_header(msg_id: int, body: bytes) -> dict[str, Any]:
 
 
 _MSM_SYSTEM_LETTER: dict[int, str] = {
+    # MSM4
+    1074: "G",
+    1084: "R",
+    1094: "E",
+    1104: "S",
+    1114: "J",
+    1124: "C",
+    1134: "I",
+    # MSM7
     1077: "G",
     1087: "R",
     1097: "E",
