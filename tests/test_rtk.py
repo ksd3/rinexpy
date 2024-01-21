@@ -61,6 +61,41 @@ def test_rtk_too_few_sats():
         )
 
 
+def test_rtk_fix_recovers_integers_and_baseline():
+    """Noise-free synthetic data: rtk_fix recovers both the integers
+    and the cm-baseline."""
+    rng = np.random.default_rng(7)
+    base = np.array(lla_to_ecef(40, -3, 0))
+    rover = base + np.array([2.5, 1.7, -0.4])  # ~3 m baseline
+
+    sv = np.array(
+        [
+            base + np.array([2.0e7, 1.0e7, 1.5e7]),
+            base + np.array([-2.0e7, 1.0e7, 1.5e7]),
+            base + np.array([0, 2.0e7, 2.0e7]),
+            base + np.array([0, -2.0e7, 1.0e7]),
+            base + np.array([1.5e7, 0, 1.7e7]),
+            base + np.array([-1.0e7, -1.5e7, 1.3e7]),
+        ]
+    )
+    true_amb = rng.integers(-100, 100, size=sv.shape[0])
+    pr_r, pr_b, ph_r, ph_b = _build_synthetic(rover, base, sv, true_amb, _LAMBDA_L1)
+
+    from rinexpy.rtk import rtk_fix
+
+    sol = rtk_fix(
+        pr_r, pr_b, ph_r, ph_b, sv, tuple(base),
+        wavelength=_LAMBDA_L1,
+        sigma_pr=1.0,
+        sigma_phase=0.005,
+    )
+    assert sol["fixed_accepted"] is True
+    bx, by, bz = sol["fixed"]["baseline"]
+    assert bx == approx(2.5, abs=1e-3)
+    assert by == approx(1.7, abs=1e-3)
+    assert bz == approx(-0.4, abs=1e-3)
+
+
 def test_rtk_returns_rover_position():
     """rover_position = base + baseline."""
     base = np.array(lla_to_ecef(0, 0, 0))
