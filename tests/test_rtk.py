@@ -43,9 +43,7 @@ def test_rtk_recovers_baseline():
     true_amb = rng.integers(-1000, 1000, size=sv.shape[0])
     pr_r, pr_b, ph_r, ph_b = _build_synthetic(rover, base, sv, true_amb, _LAMBDA_L1)
 
-    sol = double_difference_solve(
-        pr_r, pr_b, ph_r, ph_b, sv, tuple(base), wavelength=_LAMBDA_L1
-    )
+    sol = double_difference_solve(pr_r, pr_b, ph_r, ph_b, sv, tuple(base), wavelength=_LAMBDA_L1)
     bx, by, bz = sol["baseline"]
     assert bx == approx(10.0, abs=1e-3)
     assert by == approx(-5.0, abs=1e-3)
@@ -56,9 +54,7 @@ def test_rtk_too_few_sats():
     sv = np.zeros((4, 3))
     pr = np.zeros(4)
     with pytest.raises(ValueError):
-        double_difference_solve(
-            pr, pr, pr, pr, sv, (0, 0, 0), wavelength=_LAMBDA_L1
-        )
+        double_difference_solve(pr, pr, pr, pr, sv, (0, 0, 0), wavelength=_LAMBDA_L1)
 
 
 def test_rtk_fix_recovers_integers_and_baseline():
@@ -84,7 +80,12 @@ def test_rtk_fix_recovers_integers_and_baseline():
     from rinexpy.rtk import rtk_fix
 
     sol = rtk_fix(
-        pr_r, pr_b, ph_r, ph_b, sv, tuple(base),
+        pr_r,
+        pr_b,
+        ph_r,
+        ph_b,
+        sv,
+        tuple(base),
         wavelength=_LAMBDA_L1,
         sigma_pr=1.0,
         sigma_phase=0.005,
@@ -109,12 +110,8 @@ def test_rtk_returns_rover_position():
             base + np.array([1.5e7, 0, 1.7e7]),
         ]
     )
-    pr_r, pr_b, ph_r, ph_b = _build_synthetic(
-        rover, base, sv, np.zeros(sv.shape[0]), _LAMBDA_L1
-    )
-    sol = double_difference_solve(
-        pr_r, pr_b, ph_r, ph_b, sv, tuple(base), wavelength=_LAMBDA_L1
-    )
+    pr_r, pr_b, ph_r, ph_b = _build_synthetic(rover, base, sv, np.zeros(sv.shape[0]), _LAMBDA_L1)
+    sol = double_difference_solve(pr_r, pr_b, ph_r, ph_b, sv, tuple(base), wavelength=_LAMBDA_L1)
     assert sol["rover_position"][0] == approx(rover[0], abs=1e-3)
     assert sol["rover_position"][1] == approx(rover[1], abs=1e-3)
     assert sol["rover_position"][2] == approx(rover[2], abs=1e-3)

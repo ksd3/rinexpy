@@ -44,7 +44,9 @@ def test_parse_sourcetable_keeps_cas_and_net():
 
 
 def test_parse_sourcetable_stops_at_endsourcetable():
-    body = _SOURCETABLE + "STR;EXTRA;...;...;...;...;...;...;...;...;...;...;...;...;...;...;...;...\n"
+    body = (
+        _SOURCETABLE + "STR;EXTRA;...;...;...;...;...;...;...;...;...;...;...;...;...;...;...;...\n"
+    )
     # The parser should ignore the trailing extra line.
     entries = _parse_sourcetable(body)
     str_entries = [e for e in entries if e["type"] == "STR"]

@@ -67,9 +67,7 @@ def ldl(Q: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         if D[i] <= 0:
             raise np.linalg.LinAlgError("Q is not positive definite")
         for j in range(i + 1, n):
-            L[j, i] = (
-                A[j, i] - np.sum(L[j, :i] * L[i, :i] * D[:i])
-            ) / D[i]
+            L[j, i] = (A[j, i] - np.sum(L[j, :i] * L[i, :i] * D[:i])) / D[i]
     return L, D
 
 

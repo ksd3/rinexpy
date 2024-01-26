@@ -393,9 +393,7 @@ def _decode_msm_header(msg_id: int, body: bytes, *, msm_kind: int = 7) -> dict[s
     if bit + n_cells > 8 * len(body):
         out["payload_truncated"] = True
         return out
-    cell_mask_bits = [
-        _bits(body, bit + i, 1) for i in range(n_cells)
-    ]
+    cell_mask_bits = [_bits(body, bit + i, 1) for i in range(n_cells)]
     bit += n_cells
     out["cell_mask"] = cell_mask_bits
 

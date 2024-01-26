@@ -185,7 +185,8 @@ def find_antenna(
     bounded = [
         e
         for e in candidates
-        if e.get("valid_from") and e["valid_from"] <= epoch
+        if e.get("valid_from")
+        and e["valid_from"] <= epoch
         and (e.get("valid_until") is None or e["valid_until"] >= epoch)
     ]
     return (bounded or candidates)[0]
@@ -252,11 +253,7 @@ def apply_antex_pcv(
     if "noazi" not in f_entry:
         return 0.0
     noazi = f_entry["noazi"]
-    grid = (
-        f_entry["zenith_deg"]
-        if "zenith_deg" in f_entry
-        else np.linspace(0.0, 90.0, noazi.size)
-    )
+    grid = f_entry["zenith_deg"] if "zenith_deg" in f_entry else np.linspace(0.0, 90.0, noazi.size)
     val_mm = float(np.interp(zen, grid, noazi))
     return val_mm * 1e-3
 

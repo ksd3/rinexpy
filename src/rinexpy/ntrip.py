@@ -69,10 +69,7 @@ def fetch_sourcetable(
     """
     sock = _open_connection(host, port, timeout=timeout)
     request = (
-        f"GET / HTTP/1.0\r\n"
-        f"Host: {host}\r\n"
-        f"User-Agent: {_USER_AGENT}\r\n"
-        f"Connection: close\r\n\r\n"
+        f"GET / HTTP/1.0\r\nHost: {host}\r\nUser-Agent: {_USER_AGENT}\r\nConnection: close\r\n\r\n"
     ).encode("ascii")
     try:
         sock.sendall(request)
@@ -93,11 +90,23 @@ def _parse_sourcetable(text: str) -> list[dict]:
     """Parse the body of a sourcetable response into structured records."""
     out: list[dict] = []
     str_fields = [
-        "mountpoint", "identifier", "format", "format_details",
-        "carrier", "nav_system", "network", "country",
-        "latitude", "longitude", "nmea", "solution",
-        "generator", "compr_encrp", "authentication",
-        "fee", "bitrate",
+        "mountpoint",
+        "identifier",
+        "format",
+        "format_details",
+        "carrier",
+        "nav_system",
+        "network",
+        "country",
+        "latitude",
+        "longitude",
+        "nmea",
+        "solution",
+        "generator",
+        "compr_encrp",
+        "authentication",
+        "fee",
+        "bitrate",
     ]
     for line in text.splitlines():
         if line.startswith("ENDSOURCETABLE"):

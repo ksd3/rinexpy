@@ -315,9 +315,7 @@ def niell_mapping(
     a_w = float(np.interp(abs_lat, lat_grid, aw))
     b_w = float(np.interp(abs_lat, lat_grid, bw))
     c_w = float(np.interp(abs_lat, lat_grid, cw))
-    m_wet = (1 + a_w / (1 + b_w / (1 + c_w))) / (
-        sin_e + a_w / (sin_e + b_w / (sin_e + c_w))
-    )
+    m_wet = (1 + a_w / (1 + b_w / (1 + c_w))) / (sin_e + a_w / (sin_e + b_w / (sin_e + c_w)))
 
     return float(m_dry), float(m_wet)
 
@@ -370,9 +368,7 @@ def saastamoinen(
     if cos_z <= 0:
         return float("inf")
     tan_z2 = np.tan(z) ** 2
-    return float(
-        0.002277 / cos_z * (P + (1255.0 / T + 0.05) * e - tan_z2)
-    )
+    return float(0.002277 / cos_z * (P + (1255.0 / T + 0.05) * e - tan_z2))
 
 
 __all__ = [

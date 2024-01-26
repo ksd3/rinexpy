@@ -226,7 +226,9 @@ def rtk_fix(
     w_ph = 1.0 / sigma_phase
 
     cov_amb: np.ndarray | None = None
+    n_iter = 0
     for it in range(max_iter):
+        n_iter = it + 1
         rho_b = np.linalg.norm(sv - base, axis=1)
         rho_r = np.linalg.norm(sv - rover_pos, axis=1)
         sd_rho = rho_r - rho_b
@@ -265,7 +267,7 @@ def rtk_fix(
         "baseline": tuple(float(x) for x in baseline),
         "rover_position": tuple(float(x) for x in rover_pos),
         "ambiguities": state[3:].copy(),
-        "n_iter": it + 1,
+        "n_iter": n_iter,
         "ambiguity_covariance": cov_amb,
     }
 
