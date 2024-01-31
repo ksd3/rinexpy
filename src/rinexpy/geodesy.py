@@ -320,6 +320,83 @@ def niell_mapping(
     return float(m_dry), float(m_wet)
 
 
+def vmf1(
+    a_h: float,
+    a_w: float,
+    el_deg: float,
+    lat_deg: float,
+    altitude_m: float,
+    doy: int,
+) -> tuple[float, float]:
+    """Vienna Mapping Function 1 (Boehm 2006) hydrostatic + wet mapping.
+
+    Parameters
+    ----------
+    a_h, a_w:
+        Hydrostatic and wet ``a`` coefficients at the receiver, typically
+        from :func:`rinexpy.gpt2w` or the official VMF1 grid file.
+    el_deg:
+        Satellite elevation angle in degrees.
+    lat_deg:
+        Receiver latitude in degrees (used in the seasonal ``c_h`` term).
+    altitude_m:
+        Receiver altitude in meters above sea level (height correction
+        for the hydrostatic mapping).
+    doy:
+        Day-of-year (1-366) for the seasonal term in ``c_h``.
+
+    Returns
+    -------
+    m_h, m_w : float
+        Dimensionless mapping factors. Multiply zenith dry/wet delays
+        by these to get slant delays. Returns ``(inf, inf)`` at or
+        below the horizon.
+
+    Notes
+    -----
+    VMF1 is the IGS standard for cm-precision tropospheric correction.
+    The ``a`` coefficients are time-varying and location-specific (use
+    GPT2w empirical or VMF1 grid product); ``b``/``c`` coefficients are
+    global constants except for the latitudinal+seasonal ``c_h`` term
+    (Boehm et al., 2006, eq. 4-7).
+    """
+    if el_deg <= 0:
+        return float("inf"), float("inf")
+    el_rad = np.radians(el_deg)
+    sin_e = np.sin(el_rad)
+
+    b_h = 0.0029
+    b_w = 0.00146
+    c_w = 0.04391
+
+    # Latitudinal + seasonal c_h (eq. 7).
+    if lat_deg < 0:
+        psi = np.pi
+        c10_h = 0.002
+        c11_h = 0.007
+    else:
+        psi = 0.0
+        c10_h = 0.001
+        c11_h = 0.005
+    c0_h = 0.062
+    cos_phase = np.cos((doy - 28) / 365.25 * 2 * np.pi + psi)
+    c_h = c0_h + ((cos_phase + 1) * c11_h / 2 + c10_h) * (1 - np.cos(np.radians(lat_deg)))
+
+    def _cf(a: float, b: float, c: float) -> float:
+        """Marini-style continued-fraction mapping evaluator."""
+        return (1 + a / (1 + b / (1 + c))) / (sin_e + a / (sin_e + b / (sin_e + c)))
+
+    m_h = _cf(a_h, b_h, c_h)
+
+    # Hydrostatic height correction (Niell §4 / Boehm §3).
+    a_ht, b_ht, c_ht = 2.53e-5, 5.49e-3, 1.14e-3
+    dm = 1 / sin_e - _cf(a_ht, b_ht, c_ht)
+    m_h += dm * (altitude_m / 1000.0)
+
+    m_w = _cf(a_w, b_w, c_w)
+    return float(m_h), float(m_w)
+
+
 def saastamoinen(
     el_deg: float,
     altitude_m: float,
@@ -380,4 +457,5 @@ __all__ = [
     "niell_mapping",
     "saastamoinen",
     "standard_atmosphere",
+    "vmf1",
 ]

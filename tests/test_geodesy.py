@@ -79,6 +79,40 @@ def test_dop_good_geometry():
     assert out["VDOP"] <= out["PDOP"]
 
 
+def test_vmf1_zenith_unity():
+    """At el=90 both VMF1 mapping factors are 1.0."""
+    from rinexpy.geodesy import vmf1
+
+    m_h, m_w = vmf1(
+        a_h=1.25e-3, a_w=6e-4, el_deg=90.0, lat_deg=40.0, altitude_m=0.0, doy=80
+    )
+    assert m_h == approx(1.0, abs=1e-6)
+    assert m_w == approx(1.0, abs=1e-6)
+
+
+def test_vmf1_low_elevation_amplifies():
+    from rinexpy.geodesy import vmf1
+
+    m_h_zen, _ = vmf1(1.25e-3, 6e-4, 90.0, 40.0, 0.0, 80)
+    m_h_low, _ = vmf1(1.25e-3, 6e-4, 5.0, 40.0, 0.0, 80)
+    assert 9 < m_h_low / m_h_zen < 12
+
+
+def test_vmf1_below_horizon_inf():
+    from rinexpy.geodesy import vmf1
+
+    assert vmf1(1.25e-3, 6e-4, 0.0, 40.0, 0.0, 80) == (float("inf"), float("inf"))
+
+
+def test_vmf1_southern_hemisphere_phase_shift():
+    """The seasonal c_h term flips sign between hemispheres."""
+    from rinexpy.geodesy import vmf1
+
+    m_h_n, _ = vmf1(1.25e-3, 6e-4, 30.0, 40.0, 0.0, 80)
+    m_h_s, _ = vmf1(1.25e-3, 6e-4, 30.0, -40.0, 0.0, 80)
+    assert m_h_n != m_h_s
+
+
 def test_niell_zenith_unity():
     """At el=90 (zenith) both NMF factors are 1.0."""
     from rinexpy.geodesy import niell_mapping
