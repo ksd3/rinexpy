@@ -7,8 +7,6 @@ import pytest
 from pytest import approx
 
 from rinexpy.multifreq import (
-    F1,
-    F2,
     LAMBDA_L1,
     LAMBDA_L2,
     LAMBDA_WL,
@@ -34,9 +32,9 @@ def _synthesize(rho_m: np.ndarray, n1: np.ndarray, n2: np.ndarray):
 
 
 def test_lane_wavelengths():
-    assert LAMBDA_L1 == approx(0.190294, abs=1e-5)
-    assert LAMBDA_L2 == approx(0.244210, abs=1e-5)
-    assert LAMBDA_WL == approx(0.861918, abs=1e-5)
+    assert approx(0.190294, abs=1e-5) == LAMBDA_L1
+    assert approx(0.244210, abs=1e-5) == LAMBDA_L2
+    assert approx(0.861918, abs=1e-5) == LAMBDA_WL
     # Sanity: WL >> L1, L2 -> easier to fix.
     assert LAMBDA_WL > LAMBDA_L1
     assert LAMBDA_WL > LAMBDA_L2

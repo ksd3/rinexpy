@@ -50,6 +50,7 @@ from .interp import interpolate_sp3
 from .ionex import interp_tec, load_ionex, slant_tec
 from .keplerian import keplerian2ecef
 from .lambda_ar import lambda_resolve
+from .multifreq import lambda_dual_freq
 from .nav2 import navtime2, rinexnav2
 from .nav3 import navtime3, rinexnav3
 from .obs2 import obstime2, rinexobs2
@@ -72,6 +73,7 @@ __all__ = [
     "interpolate_sp3",
     "iter_obs3_epochs",
     "keplerian2ecef",
+    "lambda_dual_freq",
     "lambda_resolve",
     "load",
     "load_antex",
