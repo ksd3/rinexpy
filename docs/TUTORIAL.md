@@ -7,7 +7,7 @@ snippets into a Python REPL is the intended way to follow along.
 ## 1. Install
 
 ```sh
-pip install rinexpy
+uv add rinexpy
 ```
 
 Plain installation gives you RINEX 2/3, SP3, NetCDF, and SP3
@@ -15,15 +15,15 @@ interpolation. Most workflows want at least one extra:
 
 ```sh
 # All the optional bells and whistles:
-pip install 'rinexpy[all]'
+uv add 'rinexpy[all]'
 
 # Or pick the ones you need:
-pip install 'rinexpy[hatanaka]'   # CRINEX (.crx) reads
-pip install 'rinexpy[lzw]'        # .Z (LZW) reads
-pip install 'rinexpy[plot]'       # matplotlib plotting helpers
-pip install 'rinexpy[jit]'        # numba JIT path for huge OBS3 files
-pip install 'rinexpy[zarr]'       # Zarr write
-pip install 'rinexpy[geo]'        # pymap3d optional helpers
+uv add 'rinexpy[hatanaka]'   # CRINEX (.crx) reads
+uv add 'rinexpy[lzw]'        # .Z (LZW) reads
+uv add 'rinexpy[plot]'       # matplotlib plotting helpers
+uv add 'rinexpy[jit]'        # numba JIT path for huge OBS3 files
+uv add 'rinexpy[zarr]'       # Zarr write
+uv add 'rinexpy[geo]'        # pymap3d optional helpers
 ```
 
 Python 3.11+ is required.

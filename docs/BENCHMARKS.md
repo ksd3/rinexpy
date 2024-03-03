@@ -9,7 +9,7 @@ set of files georinex ships in its test suite, copied into
 Reproduce with:
 
 ```sh
-python benchmarks/bench_obs3.py
+uv run python benchmarks/bench_obs3.py
 ```
 
 The exact numbers will vary across machines and depend on which optional

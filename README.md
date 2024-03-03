@@ -19,9 +19,9 @@ obs.sel(sv="G07").C1C
 ## Install
 
 ```sh
-pip install rinexpy
+uv add rinexpy
 # or, with all optional deps (Hatanaka/CRINEX, LZW, NetCDF, geodetic, plotting)
-pip install 'rinexpy[all]'
+uv add 'rinexpy[all]'
 ```
 
 Python 3.11+ is required; the project itself is developed against the latest

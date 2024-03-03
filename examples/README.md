@@ -1,10 +1,10 @@
 # Examples
 
 Each script is self-contained and uses files from the bundled
-`tests/data/` corpus, so you can run them straight after `pip install -e .`:
+`tests/data/` corpus, so you can run them straight after `uv sync`:
 
 ```sh
-python examples/01_basic_load_and_plot.py
+uv run python examples/01_basic_load_and_plot.py
 ```
 
 | # | Script | What it shows |
