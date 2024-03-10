@@ -1,13 +1,17 @@
 # rinexpy
 
-Modern, fast RINEX 2/3/4, CRINEX (Hatanaka), and SP3-a/c/d reader for Python.
+Modern, fast GNSS toolkit for Python: RINEX 2/3/4 readers, SP3 / CLK /
+IONEX / ANTEX, RTCM3 + NTRIP streaming, single-point and RTK
+positioning with LAMBDA integer fixing, full troposphere/ionosphere
+correction stack.
 
-`rinexpy` is a substantially rewritten descendant of
-[`georinex`](https://github.com/geospace-code/georinex). It keeps the public
-API and the same xarray-flavored output, but the OBS3 / NAV3 hot paths have
-been rewritten to eliminate the O(N^2) `xarray.merge`-per-epoch pattern. On
-the shared test corpus this is **13-33x faster** for RINEX-3 NAV/OBS files
-and ~2-8x faster for RINEX-2 NAV (see [docs/BENCHMARKS.md](docs/BENCHMARKS.md)).
+`rinexpy` started as a substantially rewritten descendant of
+[`georinex`](https://github.com/geospace-code/georinex) — same
+xarray-flavored output, same public API names, but with the OBS3 /
+NAV3 hot paths rewritten to drop the O(N²) `xarray.merge`-per-epoch
+pattern. On the shared test corpus this is **13-33× faster** for
+RINEX-3 NAV/OBS files (see [docs/BENCHMARKS.md](docs/BENCHMARKS.md)).
+Then it grew the rest of a real GNSS stack on top.
 
 ```python
 import rinexpy as rp
@@ -20,12 +24,26 @@ obs.sel(sv="G07").C1C
 
 ```sh
 uv add rinexpy
-# or, with all optional deps (Hatanaka/CRINEX, LZW, NetCDF, geodetic, plotting)
+
+# Or with optional extras (CRINEX, LZW, NetCDF, plotting, JIT, Zarr, ...):
 uv add 'rinexpy[all]'
 ```
 
-Python 3.11+ is required; the project itself is developed against the latest
-stable CPython (3.13.x).
+Python 3.11+ is required; the project itself is developed against
+the latest stable CPython (3.13.x).
+
+## Documentation
+
+| | |
+|---|---|
+| [TUTORIAL.md](docs/TUTORIAL.md) | Step-by-step walk-through from install to RTK fix (12 sections). |
+| [COOKBOOK.md](docs/COOKBOOK.md) | Bite-sized recipes for common one-shot tasks. |
+| [API.md](docs/API.md) | Per-symbol reference of the public surface (43 entries). |
+| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Module layout, dependency layers, dataflow. |
+| [OPTIMIZATIONS.md](docs/OPTIMIZATIONS.md) | Every change vs georinex with rationale. |
+| [BENCHMARKS.md](docs/BENCHMARKS.md) | Measured perf numbers vs georinex. |
+| [SCRATCHPAD.md](SCRATCHPAD.md) | Dated engineering log of the build. |
+| [examples/](examples/) | 8 runnable scripts covering the major workflows. |
 
 ## Compatibility
 
@@ -36,46 +54,75 @@ stable CPython (3.13.x).
 | Hatanaka CRINEX (`.crx`)        | full*  |
 | GZIP / BZ2 / ZIP / LZW          | full*  |
 | SP3-a / SP3-c / SP3-d           | full   |
+| RINEX clock products (`.clk`)   | full   |
+| IONEX TEC maps (`.inx`)         | full   |
+| ANTEX antenna PCV (`.atx`)      | full   |
+| GPT2w empirical met grid        | full*  |
+| RTCM 3.x framing + decoders     | full†  |
+| NTRIP v1/v2 client              | full   |
 | StringIO input                  | full   |
 | NetCDF4 / HDF5 read / write     | full*  |
+| Zarr write                      | full*  |
 
-`*` requires the corresponding optional extra (`hatanaka`, `lzw`, `netcdf`).
+`*` requires the corresponding optional extra (`hatanaka`, `lzw`,
+`netcdf`, `zarr`, `jit`, ...). `†` decoded message types: 1004
+(extended L1/L2 RTK obs), 1005, 1006, 1019 (GPS ephemeris subset),
+1020 (GLONASS), 1033 (antenna desc), MSM4 (1074-1134), MSM7
+(1077-1137). Other IDs come back with raw payload bytes.
 
-## Public API
+## At a glance
+
+### Read any file (auto-detect)
 
 ```python
-rinexpy.load(path, *, use=None, tlim=None, meas=None,
-             useindicators=False, fast=True, interval=None,
-             out=None, overwrite=False, verbose=False)
-rinexpy.rinexnav(path, *, use=None, tlim=None, ...)
-rinexpy.rinexobs(path, *, use=None, tlim=None, ...)
-rinexpy.batch_convert(path, glob, out, *, workers=None, ...)  # parallel
-rinexpy.iter_obs3_epochs(path, *, use=None, tlim=None, interval=None)  # streaming
-rinexpy.gettime(path)         # -> np.ndarray[datetime64]
-rinexpy.rinexheader(path)     # -> dict
-rinexpy.rinexinfo(path)       # -> {"version", "rinextype", "filetype", "systems"}
-rinexpy.load_sp3(path)
-rinexpy.keplerian2ecef(nav)   # -> (X, Y, Z)
+obs = rp.load("file.rnx.gz")            # RINEX 2/3, NAV/OBS, NetCDF, SP3, ...
+obs.sel(sv="G07").C1C                   # one variable for one satellite
 ```
 
-For files larger than RAM:
+### Stream a multi-GB file
 
 ```python
-for time, ds in rinexpy.iter_obs3_epochs("huge.rnx.gz"):
-    process_one_epoch(ds)
+for time, ds in rp.iter_obs3_epochs("huge.rnx.gz"):
+    process_one_epoch(time, ds)         # constant memory
 ```
 
-For optional plots:
+### Convert a directory in parallel
 
 ```python
-from rinexpy.plots import timeseries  # requires the `plot` extra
-timeseries(rinexpy.load("foo.18o"))
+rp.batch_convert("data/", "*.rnx.gz", "out/", workers=8)
 ```
 
-For the numba-jitted hot path on huge OBS3 files:
+### Single-point positioning
 
 ```python
-rinexpy.rinexobs(fn, use_jit=True)  # requires the `jit` extra; ~1.9x faster
+sol = rp.spp_solve(sv_ecef, pseudoranges_m)
+print(sol["lla"])
+```
+
+### RTK with LAMBDA integer fix
+
+```python
+from rinexpy.rtk import rtk_fix
+from rinexpy.multifreq import LAMBDA_L1
+
+sol = rtk_fix(pr_r, pr_b, phase_r, phase_b, sv_ecef, base_ecef,
+              wavelength=LAMBDA_L1, ratio_threshold=3.0)
+print(sol["fixed"]["baseline"])         # cm-level accuracy
+```
+
+### Stream RTCM3 from an NTRIP caster
+
+```python
+from rinexpy.ntrip import stream
+from rinexpy.rtcm3 import iter_messages
+import io
+
+buf = io.BytesIO()
+for chunk in stream("rtk2go.com", "MOUNT01", port=2101):
+    buf.write(chunk); break              # collect a window
+buf.seek(0)
+for msg in iter_messages(buf):
+    print(msg["msg_id"], msg.get("station_id"))
 ```
 
 ## CLI
@@ -83,22 +130,37 @@ rinexpy.rinexobs(fn, use_jit=True)  # requires the `jit` extra; ~1.9x faster
 ```sh
 rinexpy read myfile.18o
 rinexpy times myfile.18o
-rinexpy convert path/to/data "*.rnx.gz" --out converted/
 rinexpy info myfile.18o
+rinexpy convert path/to/data "*.rnx.gz" --out converted/ -j 4
 ```
 
 ## Why a rewrite?
 
-The upstream `georinex` README explicitly notes that "`xarray.concat` and
-`xarray.Dataset` nested inside `concat` takes over 60% of time" for OBS3.
-`rinexpy` rewrites those readers to fill a preallocated NumPy buffer in a
-single pass and build the `xarray.Dataset` exactly once at the end. See
-[docs/OPTIMIZATIONS.md](docs/OPTIMIZATIONS.md) for the full list and
-[docs/BENCHMARKS.md](docs/BENCHMARKS.md) for measured wins.
+The upstream `georinex` README explicitly notes that "`xarray.concat`
+and `xarray.Dataset` nested inside `concat` takes over 60% of time"
+for OBS3. `rinexpy` rewrites those readers to fill a preallocated
+NumPy buffer in a single pass and build the `xarray.Dataset` exactly
+once at the end. From there the project grew the rest of a real GNSS
+stack: SP3 interpolation, Klobuchar / Saastamoinen / Niell / VMF1
+tropo+iono, single-point positioning, single- and dual-frequency
+LAMBDA, full RTK loop, RTCM3 + NTRIP, IONEX / ANTEX / CLK / GPT2w
+correction layers.
+
+See [OPTIMIZATIONS.md](docs/OPTIMIZATIONS.md) for the full list of
+performance changes and [SCRATCHPAD.md](SCRATCHPAD.md) for the
+build log.
+
+## Tests + CI
+
+`uv run pytest tests/` runs 315 tests in <3 s. CI matrix on GitHub
+Actions covers Linux + macOS + Windows × Python 3.11 / 3.12 / 3.13,
+plus a separate parity-against-georinex job and a benchmark-publishing
+job.
 
 ## Citation
 
-If you use this in academic work please also cite the upstream `georinex`:
+If you use this in academic work please also cite the upstream
+`georinex` for the original readers:
 [doi:10.5281/zenodo.2580306](https://doi.org/10.5281/zenodo.2580306).
 
 ## License
