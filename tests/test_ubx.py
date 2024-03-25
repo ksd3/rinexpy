@@ -62,7 +62,7 @@ def test_decode_nav_pvt_round_trip():
     struct.pack_into("<H", payload, 76, 150)           # pdop * 0.01 -> 1.50
 
     frame = _build_frame(0x01, 0x07, bytes(payload))
-    msg = list(iter_messages(io.BytesIO(frame)))[0]
+    msg = next(iter(iter_messages(io.BytesIO(frame))))
     assert msg["fix_type"] == 3
     assert msg["lat_deg"] == 40.0
     assert msg["lon_deg"] == -3.0
@@ -75,7 +75,7 @@ def test_decode_nav_sat():
     sat = struct.pack("<BBBbhhI", 0, 5, 42, 30, 180, 0, 0)
     payload = header + sat
     frame = _build_frame(0x01, 0x35, payload)
-    msg = list(iter_messages(io.BytesIO(frame)))[0]
+    msg = next(iter(iter_messages(io.BytesIO(frame))))
     assert msg["n_sat"] == 1
     assert msg["satellites"][0]["cno_dbhz"] == 42
     assert msg["satellites"][0]["elevation_deg"] == 30

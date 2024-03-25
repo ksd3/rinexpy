@@ -170,7 +170,7 @@ def _parse_time_hms(value: str) -> time | None:
         s = float(value[4:])
     except ValueError:
         return None
-    micro = int(round((s - int(s)) * 1_000_000))
+    micro = round((s - int(s)) * 1_000_000)
     return time(h, m, int(s), micro)
 
 
