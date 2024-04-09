@@ -18,6 +18,11 @@ Public API:
 - :mod:`rinexpy.geodesy` - ECEF/LLA, az/el, DOP, Klobuchar
 - :mod:`rinexpy.gpstime` - GPS week and leap-second utilities
 - :mod:`rinexpy.rtcm3` - RTCM3 streaming-feed decoder
+- :mod:`rinexpy.nmea` - NMEA-0183 sentence decoder
+- :mod:`rinexpy.ubx` - u-blox UBX binary decoder
+- :mod:`rinexpy.sbf` - Septentrio SBF binary decoder
+- :mod:`rinexpy.novatel` - NovAtel OEM binary decoder
+- :mod:`rinexpy.binex` - UNAVCO BINEX archival decoder
 - :mod:`rinexpy.plots` - matplotlib timeseries / skyplot / map plots
 - :mod:`rinexpy.asyncio` - asyncio-friendly load wrappers
 

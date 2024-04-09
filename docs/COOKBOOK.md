@@ -308,6 +308,62 @@ for chunk in bytes_iter:
     process(chunk)
 ```
 
+## Receiver-format decoders
+
+### Decode NMEA-0183 from a serial-port log
+
+```python
+from rinexpy.nmea import iter_lines
+
+with open("nmea.log") as fp:
+    for msg in iter_lines(fp):
+        if msg["type"] == "GGA":
+            print(msg["lat"], msg["lon"], msg["altitude_m"])
+```
+
+### Decode u-blox UBX from a binary capture
+
+```python
+from rinexpy.ubx import iter_messages
+
+with open("ublox.ubx", "rb") as fp:
+    for msg in iter_messages(fp):
+        if (msg["msg_class"], msg["msg_id"]) == (0x01, 0x07):  # NAV-PVT
+            print(msg["lat_deg"], msg["lon_deg"], msg["fix_type"])
+```
+
+### Decode Septentrio SBF blocks
+
+```python
+from rinexpy.sbf import iter_blocks
+
+with open("septentrio.sbf", "rb") as fp:
+    for blk in iter_blocks(fp):
+        if blk["block_id"] == 4007:                  # PVTGeodetic
+            print(blk["lat_rad"], blk["lon_rad"], blk["height_m"])
+```
+
+### Decode NovAtel OEM logs
+
+```python
+from rinexpy.novatel import iter_messages
+
+with open("novatel.bin", "rb") as fp:
+    for msg in iter_messages(fp):
+        if msg["msg_id"] == 42:                      # BESTPOS
+            print(msg["lat_deg"], msg["lon_deg"], msg["height_m"])
+```
+
+### Walk a UNAVCO BINEX archive
+
+```python
+from rinexpy.binex import iter_records
+
+with open("archive.bnx", "rb") as fp:
+    for rec in iter_records(fp):
+        print(f"record {rec['record_id']:#04x}  {rec['length']} bytes")
+```
+
 ## QC + tooling
 
 ### Quick QC report on a file

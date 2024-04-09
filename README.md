@@ -1,9 +1,10 @@
 # rinexpy
 
 Modern, fast GNSS toolkit for Python: RINEX 2/3/4 readers, SP3 / CLK /
-IONEX / ANTEX, RTCM3 + NTRIP streaming, single-point and RTK
-positioning with LAMBDA integer fixing, full troposphere/ionosphere
-correction stack.
+IONEX / ANTEX, RTCM3 + NTRIP streaming, NMEA-0183 + UBX + SBF +
+NovAtel + BINEX receiver formats, single-point and RTK positioning
+with LAMBDA integer fixing, full troposphere/ionosphere correction
+stack.
 
 `rinexpy` started as a substantially rewritten descendant of
 [`georinex`](https://github.com/geospace-code/georinex) — same
@@ -60,15 +61,25 @@ the latest stable CPython (3.13.x).
 | GPT2w empirical met grid        | full*  |
 | RTCM 3.x framing + decoders     | full†  |
 | NTRIP v1/v2 client              | full   |
+| NMEA-0183 sentences             | full‡  |
+| u-blox UBX binary               | partial§ |
+| Septentrio SBF binary           | partial§ |
+| NovAtel OEM binary              | partial§ |
+| UNAVCO BINEX                    | framing only¶ |
 | StringIO input                  | full   |
 | NetCDF4 / HDF5 read / write     | full*  |
 | Zarr write                      | full*  |
 
 `*` requires the corresponding optional extra (`hatanaka`, `lzw`,
-`netcdf`, `zarr`, `jit`, ...). `†` decoded message types: 1004
-(extended L1/L2 RTK obs), 1005, 1006, 1019 (GPS ephemeris subset),
-1020 (GLONASS), 1033 (antenna desc), MSM4 (1074-1134), MSM7
-(1077-1137). Other IDs come back with raw payload bytes.
+`netcdf`, `zarr`, `jit`, ...). `†` decoded RTCM3 message types: 1004
+(extended L1/L2 RTK obs), 1005, 1006, 1019, 1020, 1033, MSM4
+(1074-1134), MSM7 (1077-1137). Other IDs come back with raw payload
+bytes. `‡` decoded NMEA sentences: GGA, RMC, GSA, GSV, VTG. `§`
+binary framing + checksum + a small set of high-value messages
+(NAV-PVT/NAV-SAT/RXM-RAWX/RXM-SFRBX for UBX; PVTGeodetic/MeasEpoch/
+GPSNav for SBF; BESTPOS/BESTXYZ/RAWEPHEM for NovAtel). Other IDs come
+back with raw payload bytes for caller dispatch. `¶` BINEX framing
++ ubnxi + checksum; record bodies returned as raw bytes.
 
 ## At a glance
 

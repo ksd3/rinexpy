@@ -16,7 +16,8 @@ growing the existing ones.
                 │   positioning.py  rtk.py       multifreq.py          │
                 │   lambda_ar.py    interp.py    keplerian.py          │
                 │   geodesy.py      gpstime.py   gpt2w.py              │
-                │   rtcm3.py        ntrip.py                           │
+                │   rtcm3.py        ntrip.py     nmea.py               │
+                │   ubx.py          sbf.py       novatel.py   binex.py │
                 ├──────────────────────────────────────────────────────┤
                 │   headers.py    netcdf.py     plots.py               │
                 │   zarr_io.py    lazy.py       asyncio.py             │
@@ -82,6 +83,11 @@ growing the existing ones.
 | `multifreq.py` | WL/NL/MW dual-frequency LAMBDA. |
 | `rtcm3.py` | RTCM3 framing + decoders for 1004/1005/1006/1019/1020/1033/MSM4/MSM7. |
 | `ntrip.py` | NTRIP v1/v2 client (sourcetable + raw byte stream). |
+| `nmea.py` | NMEA-0183 ASCII sentence decoder (GGA/RMC/GSA/GSV/VTG). |
+| `ubx.py` | u-blox UBX binary decoder (NAV-PVT/NAV-SAT/RXM-RAWX/RXM-SFRBX). |
+| `sbf.py` | Septentrio SBF binary decoder (PVTGeodetic/MeasEpoch/GPSNav). |
+| `novatel.py` | NovAtel OEM binary decoder (BESTPOS/BESTXYZ/RAWEPHEM). |
+| `binex.py` | UNAVCO BINEX framing decoder (forward byte order). |
 
 ### Layer 4 — public dispatch
 

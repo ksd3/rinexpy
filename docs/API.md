@@ -288,6 +288,67 @@ decoders. Other message IDs come back with raw `payload_bytes`.
 | `fetch_sourcetable(host, *, port=2101, timeout=30)` | parse caster STR;/CAS;/NET; |
 | `stream(host, mountpoint, *, user="", password="", port=2101, ...)` | yield bytes |
 
+## Other receiver formats
+
+Each is a separate submodule with the same shape (`iter_*` generator
+that yields one decoded dict per record/message; checksum validation
+on by default).
+
+### `rinexpy.nmea` — ASCII NMEA-0183
+
+| function | purpose |
+|---|---|
+| `parse_sentence(line, *, check_crc=True)` | one sentence -> dict (or None) |
+| `iter_lines(stream, *, check_crc=True)` | yield decoded sentences from a line iterator |
+| `checksum(sentence)` | XOR checksum (compare against the trailing `*HH`) |
+
+Decoded sentence types: GGA, RMC, GSA, GSV, VTG. Other types come back
+with `talker`, `type`, `fields`.
+
+### `rinexpy.ubx` — u-blox UBX binary
+
+| function / constant | purpose |
+|---|---|
+| `SYNC1 = 0xB5`, `SYNC2 = 0x62` | UBX sync bytes |
+| `iter_messages(stream, *, check_crc=True)` | yield decoded UBX dicts |
+| `decode_message(msg_class, msg_id, payload)` | dispatch one payload |
+| `fletcher_checksum(data) -> (ck_a, ck_b)` | UBX 8-bit Fletcher |
+
+Decoded classes/IDs: NAV-PVT, NAV-SAT, RXM-RAWX, RXM-SFRBX. Others
+come back with raw `payload_bytes`.
+
+### `rinexpy.sbf` — Septentrio SBF
+
+| function / constant | purpose |
+|---|---|
+| `SYNC = b"\\x24\\x40"` | SBF sync bytes (`'$@'`) |
+| `iter_blocks(stream, *, check_crc=True)` | yield decoded SBF dicts |
+| `crc_ccitt(data, *, init=0)` | CRC-CCITT for SBF blocks |
+
+Decoded block IDs: PVTGeodetic (4007), MeasEpoch (4027), GPSNav (5891).
+
+### `rinexpy.novatel` — NovAtel OEM
+
+| function / constant | purpose |
+|---|---|
+| `SYNC = b"\\xaa\\x44\\x12"` | NovAtel sync sequence |
+| `iter_messages(stream, *, check_crc=True)` | yield decoded NovAtel dicts |
+| `crc32(data)` | standard IEEE-802.3 CRC32 |
+
+Decoded message IDs: BESTPOS (42), BESTXYZ (241), RAWEPHEM (41).
+
+### `rinexpy.binex` — UNAVCO BINEX
+
+| function / constant | purpose |
+|---|---|
+| `SYNC = 0xC2` | forward byte order, normal-records sync |
+| `iter_records(stream, *, check_crc=True)` | yield decoded BINEX records |
+| `read_ubnxi(stream)` | variable-length unsigned int decoder |
+| `encode_ubnxi(value)` | inverse |
+| `xor_checksum(data)` / `crc16_ccitt(data)` | the two short-record CRCs |
+
+Records come back with `record_id`, `length`, `body_bytes`.
+
 ## Writer
 
 ### `rinexpy.to_rinex_obs(obs, fn, *, version=3) -> Path`
