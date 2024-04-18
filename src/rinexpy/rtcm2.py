@@ -91,10 +91,9 @@ def iter_messages(stream: BinaryIO) -> Iterator[dict[str, Any]]:
         # Slurp some bytes if we don't have enough for a header.
         if len(pending) < 60:
             new = stream.read(256)
-            if not new:
-                if not pending:
-                    return
-                # Try to flush the remaining bytes.
+            if not new and not pending:
+                return
+            # Otherwise flush the remaining bytes.
             pending += new
 
         # Find the preamble in the data-bit stream.
