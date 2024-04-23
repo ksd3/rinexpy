@@ -364,6 +364,31 @@ with open("archive.bnx", "rb") as fp:
         print(f"record {rec['record_id']:#04x}  {rec['length']} bytes")
 ```
 
+### Decode legacy RTCM 2.x DGPS corrections
+
+```python
+from rinexpy.rtcm2 import iter_messages
+
+with open("dgps.rtcm2", "rb") as fp:
+    for msg in iter_messages(fp):
+        if msg["msg_type"] == 1:                  # pseudorange corrections
+            for c in msg["corrections"]:
+                print(f"  SV {c['sat_id']:2d}  PRC={c['prc_m']:+.2f} m"
+                      f"  RRC={c['rrc_m_s']:+.4f} m/s  IODE={c['iode']}")
+```
+
+### Decode a captured BeiDou D1 subframe
+
+```python
+from rinexpy.beidou import decode_d1_subframe1
+
+# 10 30-bit words from your receiver / RTCM3 1042 / RXM-SFRBX
+words = [...]
+nav = decode_d1_subframe1(words)
+print(f"BDS week {nav['week']}, t_oc {nav['t_oc_s']} s, "
+      f"a0 {nav['a0_s']:e}")
+```
+
 ## QC + tooling
 
 ### Quick QC report on a file

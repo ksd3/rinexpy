@@ -18,6 +18,7 @@ growing the existing ones.
                 │   geodesy.py      gpstime.py   gpt2w.py              │
                 │   rtcm3.py        ntrip.py     nmea.py               │
                 │   ubx.py          sbf.py       novatel.py   binex.py │
+                │   rtcm2.py        beidou.py                          │
                 ├──────────────────────────────────────────────────────┤
                 │   headers.py    netcdf.py     plots.py               │
                 │   zarr_io.py    lazy.py       asyncio.py             │
@@ -88,6 +89,8 @@ growing the existing ones.
 | `sbf.py` | Septentrio SBF binary decoder (PVTGeodetic/MeasEpoch/GPSNav). |
 | `novatel.py` | NovAtel OEM binary decoder (BESTPOS/BESTXYZ/RAWEPHEM). |
 | `binex.py` | UNAVCO BINEX framing decoder (forward byte order). |
+| `rtcm2.py` | Legacy RTCM SC-104 v2.x DGPS decoder (Type 1/3/9). |
+| `beidou.py` | BeiDou D1/D2 raw subframe decoder (clock + iono). |
 
 ### Layer 4 — public dispatch
 

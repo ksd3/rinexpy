@@ -349,6 +349,32 @@ Decoded message IDs: BESTPOS (42), BESTXYZ (241), RAWEPHEM (41).
 
 Records come back with `record_id`, `length`, `body_bytes`.
 
+### `rinexpy.rtcm2` — RTCM SC-104 v2.x (legacy DGPS)
+
+| function / constant | purpose |
+|---|---|
+| `PREAMBLE = 0x66` | RTCM2 preamble byte |
+| `extract_data_bits(buf)` | strip the 6-of-8 wire encoding |
+| `iter_messages(stream)` | yield decoded RTCM2 message dicts |
+
+Decoded message types: 1 (DGPS pseudorange corrections per SV with
+PRC/RRC/IODE), 3 (reference station ECEF in cm), 9 (high-rate
+corrections, same payload as 1). Other types come back with raw
+`data_words` (24-bit ints). Hamming parity NOT validated.
+
+### `rinexpy.beidou` — BeiDou D1/D2 raw subframes
+
+| function / constant | purpose |
+|---|---|
+| `PREAMBLE = 0x712` | BeiDou 11-bit nav-message preamble |
+| `decode_d1_subframe1(words)` | clock + ionospheric model from D1 SF1 |
+| `decode_d2_page1(words)` | clock parameters from D2 page 1 |
+| `encode_subframe_words(spec)` | test helper: pack data bits into 10 30-bit words |
+
+Input is a list of 10 30-bit subframe words (parity bits included
+but not validated; we strip them to a 224-bit data stream then read
+fields by absolute offset per ICD-BDS-OS-200 Tables 5-3/5-4).
+
 ## Writer
 
 ### `rinexpy.to_rinex_obs(obs, fn, *, version=3) -> Path`

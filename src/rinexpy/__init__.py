@@ -23,6 +23,8 @@ Public API:
 - :mod:`rinexpy.sbf` - Septentrio SBF binary decoder
 - :mod:`rinexpy.novatel` - NovAtel OEM binary decoder
 - :mod:`rinexpy.binex` - UNAVCO BINEX archival decoder
+- :mod:`rinexpy.rtcm2` - legacy RTCM SC-104 v2.x DGPS decoder
+- :mod:`rinexpy.beidou` - BeiDou D1/D2 raw subframe decoder
 - :mod:`rinexpy.plots` - matplotlib timeseries / skyplot / map plots
 - :mod:`rinexpy.asyncio` - asyncio-friendly load wrappers
 
