@@ -81,3 +81,60 @@ jobs:
           uv pip install georinex
       - name: Run benchmarks
         run: uv run python benchmarks/bench_obs3.py
+
+  # Build the optional rinexpy-native C++ extension wheels for every
+  # supported platform/Python via cibuildwheel, then test that the
+  # native dispatch in rinexpy actually picks them up.
+  native-wheels:
+    needs: lint
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Build wheels with cibuildwheel
+        uses: pypa/cibuildwheel@v2.21
+        with:
+          package-dir: native
+          output-dir: native-wheels
+        env:
+          CIBW_BUILD: "cp311-* cp312-* cp313-*"
+          CIBW_SKIP: "*-musllinux_i686 pp*"
+          CIBW_TEST_COMMAND: >
+            python -c "from rinexpy_native import decode_obs_batch;
+            print(decode_obs_batch.__doc__[:60])"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-wheels-${{ matrix.os }}
+          path: native-wheels/*.whl
+
+  # Cross-check: install rinexpy + the freshly-built native wheel and
+  # run the full native-aware test suite (test_native.py is otherwise
+  # skipped when rinexpy_native isn't importable).
+  native-integration:
+    needs: native-wheels
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: native-wheels-ubuntu-latest
+          path: native-wheels
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+      - name: Set up Python
+        run: uv python install 3.13
+      - name: Install rinexpy + the local native wheel
+        run: |
+          uv sync --all-extras
+          uv pip install native-wheels/*.whl
+      - name: Run native test path
+        run: uv run pytest tests/test_native.py -q --tb=short

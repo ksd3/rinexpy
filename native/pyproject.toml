@@ -1,0 +1,42 @@
+[project]
+name = "rinexpy-native"
+version = "0.1.0"
+description = "Optional C++ acceleration for the rinexpy OBS3 decoder."
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Kshitij Duraphe", email = "kshitijduraphe5@gmail.com" }]
+requires-python = ">=3.11"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: C++",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: GIS",
+]
+dependencies = ["numpy>=1.26"]
+
+[project.urls]
+Homepage = "https://github.com/kshitijduraphe/rinexpy"
+
+[build-system]
+requires = ["scikit-build-core>=0.10", "nanobind>=2.0"]
+build-backend = "scikit_build_core.build"
+
+[tool.scikit-build]
+minimum-version = "0.10"
+build-dir = "build/{wheel_tag}"
+wheel.packages = ["python/rinexpy_native"]
+wheel.py-api = "cp312"   # stable ABI from Python 3.12 on (smaller wheel matrix)
+
+[tool.scikit-build.cmake.define]
+# Allow downstream wheels to pick the build type explicitly.
+CMAKE_BUILD_TYPE = "Release"
+
+[tool.cibuildwheel]
+build = "cp311-* cp312-* cp313-*"
+skip = "*-musllinux_i686 pp*"
+test-command = "python -c 'from rinexpy_native import decode_obs_batch; print(decode_obs_batch.__doc__[:60])'"

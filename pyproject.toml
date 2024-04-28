@@ -40,6 +40,9 @@ jit = [
 zarr = [
     "zarr>=2.18",
 ]
+native = [
+    "rinexpy-native>=0.1",
+]
 
 [project.scripts]
 rinexpy = "rinexpy.cli:main"
@@ -130,6 +133,13 @@ markers = [
     "needs_hatanaka: requires hatanaka",
     "needs_lzw: requires ncompress",
 ]
+
+[tool.uv.sources]
+# In this repo the native package lives in ./native/ rather than on
+# PyPI, so resolve it from the local path during development.
+# Downstream installs from PyPI just see ``rinexpy-native`` as a
+# normal compiled-wheel dependency.
+rinexpy-native = { path = "native", editable = true }
 
 [tool.coverage.run]
 source = ["src/rinexpy"]

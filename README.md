@@ -28,10 +28,16 @@ uv add rinexpy
 
 # Or with optional extras (CRINEX, LZW, NetCDF, plotting, JIT, Zarr, ...):
 uv add 'rinexpy[all]'
+
+# Optional C++ acceleration for OBS3 (separate compiled wheel; auto-detected):
+uv add 'rinexpy[native]'
 ```
 
 Python 3.11+ is required; the project itself is developed against
-the latest stable CPython (3.13.x).
+the latest stable CPython (3.13.x). The base `rinexpy` install is
+**pure Python** — no compiler required. The optional `[native]`
+extra pulls in `rinexpy-native`, a small C++17 wheel that drops in
+as the OBS3 decoder back-end (~18× faster on the parse kernel).
 
 ## Documentation
 

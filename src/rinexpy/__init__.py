@@ -25,6 +25,8 @@ Public API:
 - :mod:`rinexpy.binex` - UNAVCO BINEX archival decoder
 - :mod:`rinexpy.rtcm2` - legacy RTCM SC-104 v2.x DGPS decoder
 - :mod:`rinexpy.beidou` - BeiDou D1/D2 raw subframe decoder
+- :mod:`rinexpy._native` - optional C++ acceleration dispatcher
+  (auto-active when ``rinexpy-native`` is installed)
 - :mod:`rinexpy.plots` - matplotlib timeseries / skyplot / map plots
 - :mod:`rinexpy.asyncio` - asyncio-friendly load wrappers
 
