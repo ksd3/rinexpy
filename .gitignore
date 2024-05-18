@@ -17,3 +17,8 @@ venv/
 *.swp
 .DS_Store
 .benchmarks/
+
+# mkdocs files copied at build time from the repo root
+docs/CHANGELOG.md
+docs/CONTRIBUTING.md
+docs/SCRATCHPAD.md

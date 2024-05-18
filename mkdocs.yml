@@ -1,0 +1,98 @@
+site_name: rinexpy
+site_description: Modern, fast GNSS toolkit for Python
+site_url: https://kshitijduraphe.github.io/rinexpy/
+repo_url: https://github.com/kshitijduraphe/rinexpy
+repo_name: kshitijduraphe/rinexpy
+edit_uri: edit/main/docs/
+
+# Most of our docs already live in /docs as Markdown — mkdocs uses that
+# directory by default, so no extra plumbing needed.
+docs_dir: docs
+
+theme:
+  name: material
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.expand
+    - navigation.footer
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - toc.follow
+  palette:
+    # Light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    # Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  font:
+    text: Inter
+    code: JetBrains Mono
+  icon:
+    repo: fontawesome/brands/github
+
+nav:
+  - Home: index.md
+  - Tutorial: TUTORIAL.md
+  - Cookbook: COOKBOOK.md
+  - API reference: API.md
+  - Architecture: ARCHITECTURE.md
+  - Performance:
+      - Optimizations: OPTIMIZATIONS.md
+      - Benchmarks: BENCHMARKS.md
+  - Project:
+      - Changelog: CHANGELOG.md
+      - Contributing: CONTRIBUTING.md
+      - Engineering log: SCRATCHPAD.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/kshitijduraphe/rinexpy
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/rinexpy/
+
+watch:
+  - src/rinexpy
+  - README.md
+  - CHANGELOG.md
+  - CONTRIBUTING.md
+  - SCRATCHPAD.md
