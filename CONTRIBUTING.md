@@ -6,7 +6,7 @@ everything you need to know to get from a fresh clone to a merged PR.
 ## Quick start
 
 ```sh
-git clone https://github.com/kshitijduraphe/rinexpy
+git clone https://github.com/ksd3/rinexpy
 cd rinexpy
 uv sync --all-extras       # installs the package + every optional extra + dev tools
 uv run pytest tests/ -q    # 373 tests, finishes in <3 s
@@ -201,6 +201,6 @@ See `CODE_OF_CONDUCT.md` for the full text.
 
 ## Questions
 
-Open a [GitHub Discussion](https://github.com/kshitijduraphe/rinexpy/discussions)
-for design questions; file an [Issue](https://github.com/kshitijduraphe/rinexpy/issues)
+Open a [GitHub Discussion](https://github.com/ksd3/rinexpy/discussions)
+for design questions; file an [Issue](https://github.com/ksd3/rinexpy/issues)
 for bugs and feature requests.

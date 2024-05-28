@@ -1,6 +1,6 @@
 # rinexpy-native
 
-Optional C++ acceleration for [`rinexpy`](https://github.com/kshitijduraphe/rinexpy).
+Optional C++ acceleration for [`rinexpy`](https://github.com/ksd3/rinexpy).
 
 This package contains a single compiled extension (`rinexpy_native._ext`)
 that replaces the OBS3 fixed-width decoder with a hand-tuned C++17

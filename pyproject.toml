@@ -48,8 +48,8 @@ native = [
 rinexpy = "rinexpy.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/kshitijduraphe/rinexpy"
-Issues = "https://github.com/kshitijduraphe/rinexpy/issues"
+Homepage = "https://github.com/ksd3/rinexpy"
+Issues = "https://github.com/ksd3/rinexpy/issues"
 
 [build-system]
 requires = ["hatchling"]

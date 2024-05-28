@@ -153,5 +153,5 @@ each:
    leaked uninitialised heap memory for SVs absent from a
    particular epoch, producing nondeterministic output).
 
-[Unreleased]: https://github.com/kshitijduraphe/rinexpy/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/kshitijduraphe/rinexpy/releases/tag/v0.1.0
+[Unreleased]: https://github.com/ksd3/rinexpy/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/ksd3/rinexpy/releases/tag/v0.1.0

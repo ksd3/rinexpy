@@ -20,7 +20,7 @@ classifiers = [
 dependencies = ["numpy>=1.26"]
 
 [project.urls]
-Homepage = "https://github.com/kshitijduraphe/rinexpy"
+Homepage = "https://github.com/ksd3/rinexpy"
 
 [build-system]
 requires = ["scikit-build-core>=0.10", "nanobind>=2.0"]

@@ -89,7 +89,7 @@ Python 3.11+ is required.
   full LAMBDA loop (single + dual freq), Klobuchar / Saastamoinen /
   Niell / VMF1, GPT2w empirical met grid
 
-See [Compatibility table in README](https://github.com/kshitijduraphe/rinexpy#compatibility)
+See [Compatibility table in README](https://github.com/ksd3/rinexpy#compatibility)
 for the full matrix with footnotes.
 
 ## Project info
@@ -97,7 +97,7 @@ for the full matrix with footnotes.
 - [Changelog](CHANGELOG.md)
 - [Contributing](CONTRIBUTING.md)
 - [Engineering log](SCRATCHPAD.md) — dated walkthrough of how this got built
-- [GitHub repository](https://github.com/kshitijduraphe/rinexpy)
+- [GitHub repository](https://github.com/ksd3/rinexpy)
 
 ## License
 
