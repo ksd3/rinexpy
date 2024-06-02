@@ -58,7 +58,6 @@ nav:
   - Project:
       - Changelog: CHANGELOG.md
       - Contributing: CONTRIBUTING.md
-      - Engineering log: SCRATCHPAD.md
 
 markdown_extensions:
   - admonition
@@ -95,4 +94,3 @@ watch:
   - README.md
   - CHANGELOG.md
   - CONTRIBUTING.md
-  - SCRATCHPAD.md

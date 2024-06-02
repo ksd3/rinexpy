@@ -117,8 +117,6 @@ with the Angular flavor:
 - Each commit should land one cohesive change. Prefer many small
   commits over one big one — `git log --oneline` should read like
   a plan.
-- Never put `Anthropic`, `Claude`, or any LLM provider name in
-  commit messages.
 - Don't skip pre-commit hooks (`--no-verify`) or signing (`--no-gpg-sign`).
 - When a perf change requires a rewrite, the perf commit IS the
   rewrite (not a separate "refactor + perf" pair).
@@ -146,7 +144,6 @@ Before opening a PR, confirm:
 - [ ] If you added a new module, list it in `docs/ARCHITECTURE.md`
 - [ ] If you changed the public API, add an entry to `CHANGELOG.md` (under `## [Unreleased]`)
 - [ ] Conventional-commit subject lines (`<type>(<scope>): <subject>`)
-- [ ] No mention of LLM providers in commit messages or code comments
 
 ## Adding a new reader format
 

@@ -49,7 +49,6 @@ as the OBS3 decoder back-end (~18× faster on the parse kernel).
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Module layout, dependency layers, dataflow. |
 | [OPTIMIZATIONS.md](docs/OPTIMIZATIONS.md) | Every change vs georinex with rationale. |
 | [BENCHMARKS.md](docs/BENCHMARKS.md) | Measured perf numbers vs georinex. |
-| [SCRATCHPAD.md](SCRATCHPAD.md) | Dated engineering log of the build. |
 | [examples/](examples/) | 8 runnable scripts covering the major workflows. |
 
 ## Compatibility
@@ -171,8 +170,7 @@ LAMBDA, full RTK loop, RTCM3 + NTRIP, IONEX / ANTEX / CLK / GPT2w
 correction layers.
 
 See [OPTIMIZATIONS.md](docs/OPTIMIZATIONS.md) for the full list of
-performance changes and [SCRATCHPAD.md](SCRATCHPAD.md) for the
-build log.
+performance changes.
 
 ## Tests + CI
 

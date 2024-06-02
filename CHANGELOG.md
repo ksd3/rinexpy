@@ -122,8 +122,7 @@ The first public release.
 
 ### Added — documentation
 
-- `README.md`, `SCRATCHPAD.md` (engineering log), `CHANGELOG.md`
-  (this file), `CONTRIBUTING.md`.
+- `README.md`, `CHANGELOG.md` (this file), `CONTRIBUTING.md`.
 - `docs/`: `TUTORIAL.md` (install → RTK in 12 sections),
   `COOKBOOK.md` (copy-pasteable recipes), `API.md` (per-symbol
   reference of all 43 public entries), `ARCHITECTURE.md`

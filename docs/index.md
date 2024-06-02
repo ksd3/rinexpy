@@ -96,7 +96,6 @@ for the full matrix with footnotes.
 
 - [Changelog](CHANGELOG.md)
 - [Contributing](CONTRIBUTING.md)
-- [Engineering log](SCRATCHPAD.md) — dated walkthrough of how this got built
 - [GitHub repository](https://github.com/ksd3/rinexpy)
 
 ## License

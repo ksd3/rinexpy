@@ -18,6 +18,8 @@ venv/
 .DS_Store
 .benchmarks/
 
+SCRATCHPAD.md
+
 # mkdocs files copied at build time from the repo root
 docs/CHANGELOG.md
 docs/CONTRIBUTING.md

@@ -171,7 +171,6 @@ The full suite finishes in well under 3 seconds on a modern laptop.
 rinexpy/
 ├── pyproject.toml
 ├── README.md
-├── SCRATCHPAD.md            — engineering log (read this for the why)
 ├── docs/
 │   ├── ARCHITECTURE.md      — this file
 │   ├── API.md               — per-symbol reference
