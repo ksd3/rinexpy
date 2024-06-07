@@ -135,10 +135,8 @@ markers = [
 ]
 
 [tool.uv.sources]
-# In this repo the native package lives in ./native/ rather than on
-# PyPI, so resolve it from the local path during development.
-# Downstream installs from PyPI just see ``rinexpy-native`` as a
-# normal compiled-wheel dependency.
+# rinexpy is local-only — the native package lives in ./native/.
+# `uv sync --extra native` resolves it from this local path.
 rinexpy-native = { path = "native", editable = true }
 
 [tool.coverage.run]

@@ -86,8 +86,6 @@ extra:
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/ksd3/rinexpy
-    - icon: fontawesome/brands/python
-      link: https://pypi.org/project/rinexpy/
 
 watch:
   - src/rinexpy

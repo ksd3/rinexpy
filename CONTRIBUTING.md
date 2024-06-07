@@ -162,20 +162,28 @@ the most recent one is the fastest path. Roughly:
 
 ## Releasing (maintainers only)
 
+`rinexpy` is local-only — there is no PyPI publish step. A "release"
+is just a tagged commit on `main` plus a built wheel kept under
+`dist/`.
+
 1. Update `CHANGELOG.md`: move `## [Unreleased]` content into a
    new dated `## [X.Y.Z]` section.
 2. Bump `__version__` in `src/rinexpy/__init__.py` and the
-   `version` field in `pyproject.toml`. If shipping a matching
-   `rinexpy-native` release, bump `native/pyproject.toml` and
+   `version` field in `pyproject.toml`. If the matching
+   `rinexpy-native` extension also changed, bump
+   `native/pyproject.toml` and
    `native/python/rinexpy_native/__init__.py` too.
 3. Commit with `chore: release X.Y.Z`.
 4. Tag: `git tag -s vX.Y.Z -m "vX.Y.Z"`.
 5. Push: `git push origin main --tags`.
-6. The `release.yml` GitHub Actions workflow does the rest:
-   builds the pure-Python wheel for `rinexpy`, builds the
-   cibuildwheel matrix for `rinexpy-native`, and uploads both
-   to PyPI via [trusted publishing](https://docs.pypi.org/trusted-publishers/).
-7. Edit the auto-created GitHub Release to add the changelog
+6. Build the wheel and sdist locally so users cloning at the tag
+   can install without rebuilding:
+   ```sh
+   uv build --wheel --sdist
+   ```
+   The artifacts land under `dist/`. Attach them to the GitHub
+   Release manually if you want a downloadable wheel.
+7. Edit the auto-created GitHub Release to paste the changelog
    excerpt as the release notes.
 
 ## Reporting bugs

@@ -53,7 +53,7 @@ def decode_obs_batch(flat, n_lines: int, n_obs: int):
     if _decode_obs_batch is None:
         raise ImportError(
             "rinexpy_native is not installed; "
-            "install with `uv add 'rinexpy[native]'` or `pip install rinexpy-native`."
+            "from the rinexpy checkout run `uv sync --extra native`."
         )
     return _decode_obs_batch(flat, n_lines, n_obs)
 

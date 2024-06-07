@@ -6,27 +6,32 @@ snippets into a Python REPL is the intended way to follow along.
 
 ## 1. Install
 
+`rinexpy` is local-only — clone the repo and let `uv` set up the
+environment. See the [README](../README.md) for the full uv install
+recipe.
+
 ```sh
-uv add rinexpy
+git clone https://github.com/ksd3/rinexpy
+cd rinexpy
+uv sync --all-extras       # base + every reader extra + dev tools
 ```
 
-Plain installation gives you RINEX 2/3, SP3, NetCDF, and SP3
-interpolation. Most workflows want at least one extra:
+Or pick just the extras you need:
 
 ```sh
-# All the optional bells and whistles:
-uv add 'rinexpy[all]'
-
-# Or pick the ones you need:
-uv add 'rinexpy[hatanaka]'   # CRINEX (.crx) reads
-uv add 'rinexpy[lzw]'        # .Z (LZW) reads
-uv add 'rinexpy[plot]'       # matplotlib plotting helpers
-uv add 'rinexpy[jit]'        # numba JIT path for huge OBS3 files
-uv add 'rinexpy[zarr]'       # Zarr write
-uv add 'rinexpy[geo]'        # pymap3d optional helpers
+uv sync                       # base only — RINEX 2/3, SP3, NetCDF
+uv sync --extra hatanaka      # + CRINEX (.crx) reads
+uv sync --extra lzw           # + .Z (LZW) reads
+uv sync --extra plot          # + matplotlib plotting helpers
+uv sync --extra jit           # + numba JIT path for huge OBS3 files
+uv sync --extra zarr          # + Zarr write
+uv sync --extra geo           # + pymap3d helpers
 ```
 
 Python 3.11+ is required.
+
+All snippets below are meant to be run inside the project venv:
+`uv run python` (or activate `.venv/bin/activate` first).
 
 ## 2. Read your first file
 

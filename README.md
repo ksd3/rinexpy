@@ -23,21 +23,59 @@ obs.sel(sv="G07").C1C
 
 ## Install
 
+`rinexpy` is not published to PyPI — it builds and runs from a local
+checkout. Python 3.11+ is required (developed against 3.13.x); the
+base install is **pure Python**, no compiler needed.
+
+### 1. Install [`uv`](https://github.com/astral-sh/uv)
+
+`uv` is the package and project manager this repo is configured for.
+It installs Python interpreters, manages the virtualenv, resolves
+the lockfile, and runs the test/bench scripts.
+
 ```sh
-uv add rinexpy
+# macOS / Linux:
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# Or with optional extras (CRINEX, LZW, NetCDF, plotting, JIT, Zarr, ...):
-uv add 'rinexpy[all]'
+# Windows (PowerShell):
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 
-# Optional C++ acceleration for OBS3 (separate compiled wheel; auto-detected):
-uv add 'rinexpy[native]'
+# Or via Homebrew / pipx if you prefer:
+brew install uv          # macOS
+pipx install uv          # any OS
 ```
 
-Python 3.11+ is required; the project itself is developed against
-the latest stable CPython (3.13.x). The base `rinexpy` install is
-**pure Python** — no compiler required. The optional `[native]`
-extra pulls in `rinexpy-native`, a small C++17 wheel that drops in
-as the OBS3 decoder back-end (~18× faster on the parse kernel).
+Verify: `uv --version`.
+
+### 2. Clone and set up
+
+```sh
+git clone https://github.com/ksd3/rinexpy
+cd rinexpy
+uv sync --all-extras       # creates .venv, installs every reader extra + dev deps
+```
+
+That's it. The `--all-extras` flag pulls in CRINEX, LZW, NetCDF,
+plotting, JIT, Zarr, geo helpers, and the local-path C++ extension
+(`./native/`) in one shot. For a minimal install:
+
+```sh
+uv sync                    # base package only
+uv sync --extra hatanaka   # + a specific reader extra
+```
+
+### 3. Use it
+
+Run anything inside the project's virtualenv via `uv run`:
+
+```sh
+uv run python -c "import rinexpy; print(rinexpy.__version__)"
+uv run pytest tests/ -q
+uv run rinexpy read tests/data/demo.21o
+```
+
+Or `source .venv/bin/activate` once and call `python` / `pytest`
+directly.
 
 ## Documentation
 
@@ -172,12 +210,46 @@ correction layers.
 See [OPTIMIZATIONS.md](docs/OPTIMIZATIONS.md) for the full list of
 performance changes.
 
-## Tests + CI
+## Tests
 
-`uv run pytest tests/` runs 315 tests in <3 s. CI matrix on GitHub
-Actions covers Linux + macOS + Windows × Python 3.11 / 3.12 / 3.13,
-plus a separate parity-against-georinex job and a benchmark-publishing
-job.
+```sh
+uv run pytest tests/ -q              # full suite, ~3 s
+uv run pytest tests/test_obs3.py -v  # one module
+uv run pytest tests/ -k native -v    # filter by keyword
+
+# Cross-check against an installed georinex:
+uv pip install georinex
+uv run pytest tests/test_parity.py -q
+
+# Benchmarks (writes results under benchmarks/):
+uv run python benchmarks/bench_obs3.py
+```
+
+Lint and format:
+
+```sh
+uv run ruff check src/ tests/ benchmarks/
+uv run ruff format src/ tests/ benchmarks/
+```
+
+There is no hosted CI — testing is local-only. If you want to verify
+across multiple Python versions, install them through `uv` and pass
+`--python`:
+
+```sh
+uv python install 3.11 3.12 3.13
+for v in 3.11 3.12 3.13; do
+  uv sync --all-extras --python "$v"
+  uv run --python "$v" pytest tests/ -q
+done
+```
+
+## Build the docs locally
+
+```sh
+uv run mkdocs serve        # live preview at http://127.0.0.1:8000
+uv run mkdocs build        # static site under site/
+```
 
 ## Citation
 

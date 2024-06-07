@@ -109,16 +109,13 @@ The first public release.
 - Argparse `rinexpy` CLI with `read` / `times` / `info` /
   `convert` subcommands.
 
-### Added — packaging + CI
+### Added — packaging
 
 - `pyproject.toml` with extras for `hatanaka`, `lzw`, `netcdf`,
   `geo`, `plot`, `jit`, `zarr`, `native`, and `all`.
-- GitHub Actions matrix CI: lint + format check, full test matrix
-  on {Linux, macOS, Windows} × {Python 3.11, 3.12, 3.13}, parity
-  cross-checks against `georinex`, benchmark publishing.
-- `cibuildwheel` job for the `rinexpy-native` C++ wheels with a
-  separate integration job that installs the freshly-built wheel
-  and runs the native test suite.
+- `uv`-managed project skeleton with a pinned `uv.lock`. Local-only
+  install (no PyPI publish); the optional `rinexpy-native` C++
+  extension is resolved from `./native/` as a workspace dependency.
 
 ### Added — documentation
 
@@ -130,8 +127,8 @@ The first public release.
   change vs `georinex` with rationale), `BENCHMARKS.md` (measured
   perf numbers).
 - `examples/`: 8 runnable scripts covering the headline workflows.
-- `mkdocs.yml` for the documentation site, deployed via GitHub
-  Pages on every push to `main`.
+- `mkdocs.yml` for the documentation site, built locally with
+  `uv run mkdocs serve` / `uv run mkdocs build`.
 
 ### Tests
 

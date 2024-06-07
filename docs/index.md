@@ -70,13 +70,16 @@ See [Benchmarks](BENCHMARKS.md) for the full per-file breakdown and
 
 ## Install
 
+`rinexpy` is local-only — clone and let `uv` set it up:
+
 ```sh
-uv add rinexpy                       # pure Python
-uv add 'rinexpy[all]'                # + every optional reader extra
-uv add 'rinexpy[native]'             # + the optional C++ extension
+git clone https://github.com/ksd3/rinexpy
+cd rinexpy
+uv sync --all-extras       # base + every reader extra + dev tools
 ```
 
-Python 3.11+ is required.
+Python 3.11+ is required. See the [README](https://github.com/ksd3/rinexpy#install)
+for the full uv install recipe (macOS / Linux / Windows).
 
 ## Coverage at a glance
 

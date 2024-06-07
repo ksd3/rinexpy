@@ -147,8 +147,8 @@ the full layer 1-3 walk independently.
 | `jit` | `numba>=0.60` | the optional batched OBS3 decoder |
 | `all` | all of the above | everything |
 
-A bare `pip install rinexpy` is sufficient for plain RINEX 2/3 NAV/OBS
-and SP3 reads; trying to open a `.crx`/`.Z` file without the right
+A bare `uv sync` (no extras) is sufficient for plain RINEX 2/3 NAV/OBS
+and SP3 reads; trying to open a `.crx`/`.Z` file without the matching
 extra raises `ImportError` with a precise actionable message.
 
 ## Testing

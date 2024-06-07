@@ -5,9 +5,9 @@ the OBS3 fixed-width decoder. It is imported automatically by
 ``rinexpy.obs3`` when present, so end users typically never call into
 this package directly.
 
-Install:
+Install from the parent rinexpy checkout:
 
-    uv add rinexpy-native
+    uv sync --extra native
 
 The pure-Python ``rinexpy`` package is unchanged whether this is
 installed or not — installing ``rinexpy-native`` only adds a faster
