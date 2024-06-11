@@ -1,9 +1,8 @@
 # Architecture
 
-`rinexpy` is layered: each layer depends only on layers below it. The
-core is small (file I/O + epoch parsing + xarray glue); everything
-else hangs off it. New features land as their own module rather than
-growing the existing ones.
+`rinexpy` is layered. Each layer depends only on the ones below it. The
+core is small: file I/O, epoch parsing, xarray glue. New features land
+as their own module instead of growing existing ones.
 
 ```
                 ┌──────────────────────────────────────────────────────┐
@@ -32,14 +31,14 @@ growing the existing ones.
 
 ## Layers in detail
 
-### Layer 0 — primitives
+### Layer 0, primitives
 
 | module | role |
 |---|---|
 | `_types.py` | shared type aliases (`FileLike`, `TimeLimit`, ...). |
 | `_version.py` | first-line sniff: RINEX/CRINEX/SP3 version + filetype. |
 
-### Layer 1 — IO + time + helpers
+### Layer 1, IO + time + helpers
 
 | module | role |
 |---|---|
@@ -49,7 +48,7 @@ growing the existing ones.
 | `_jit.py` | optional numba kernel (opt-in via `RINEXPY_USE_JIT=1` or `use_jit=True`). |
 | `_errors.py` | `LineCountingStream` + `format_parse_error` for file:line context. |
 
-### Layer 2 — header / NetCDF / plot / lazy
+### Layer 2, header / NetCDF / plot / lazy
 
 | module | role |
 |---|---|
@@ -60,7 +59,7 @@ growing the existing ones.
 | `lazy.py` | dask-backed multi-file reader. |
 | `asyncio.py` | thread-pool `aload` / `aload_many` wrappers. |
 
-### Layer 3 — readers + math + tooling
+### Layer 3, readers + math + tooling
 
 | module | role |
 |---|---|
@@ -92,13 +91,13 @@ growing the existing ones.
 | `rtcm2.py` | Legacy RTCM SC-104 v2.x DGPS decoder (Type 1/3/9). |
 | `beidou.py` | BeiDou D1/D2 raw subframe decoder (clock + iono). |
 
-### Layer 4 — public dispatch
+### Layer 4, public dispatch
 
 | module | role |
 |---|---|
 | `api.py` | `load`, `rinexnav`, `rinexobs`, `gettime`, `batch_convert` (parallel). |
 
-### Layer 5 — CLI
+### Layer 5, CLI
 
 | module | role |
 |---|---|
@@ -107,7 +106,7 @@ growing the existing ones.
 
 ## End-to-end dataflow
 
-A typical `rinexpy.load("foo.rnx.gz")` walks the layers as follows:
+A `rinexpy.load("foo.rnx.gz")` call walks the layers like this:
 
 ```
 api.load                                # 1. user-facing entry
@@ -123,16 +122,16 @@ api.load                                # 1. user-facing entry
 ```
 
 Steps 7 and 8 are the headline performance change vs georinex: walk
-+ assemble are split, the assemble is linear in the number of epochs,
-and `xarray.merge` is *not* called per-epoch. See `OPTIMIZATIONS.md`.
+and assemble are split, the assemble is linear in epoch count, and
+`xarray.merge` isn't called per-epoch. See `OPTIMIZATIONS.md`.
 
-For the streaming path (`iter_obs3_epochs`) step 8 is replaced with a
-yield-per-epoch loop that builds a single-time `xarray.Dataset`
-sized only to the SVs present in that epoch.
+The streaming path (`iter_obs3_epochs`) replaces step 8 with a
+yield-per-epoch loop that builds a single-time `xarray.Dataset` sized
+to the SVs present in that epoch.
 
-For the parallel batch path (`batch_convert(workers=N)`) the work is
-sharded by file across a `multiprocessing.Pool`, each worker doing
-the full layer 1-3 walk independently.
+The parallel batch path (`batch_convert(workers=N)`) shards by file
+across a `multiprocessing.Pool`. Each worker does the full layer 1-3
+walk on its own.
 
 ## Optional dependencies
 
@@ -147,23 +146,23 @@ the full layer 1-3 walk independently.
 | `jit` | `numba>=0.60` | the optional batched OBS3 decoder |
 | `all` | all of the above | everything |
 
-A bare `uv sync` (no extras) is sufficient for plain RINEX 2/3 NAV/OBS
-and SP3 reads; trying to open a `.crx`/`.Z` file without the matching
-extra raises `ImportError` with a precise actionable message.
+A bare `uv sync` (no extras) is enough for plain RINEX 2/3 NAV/OBS and
+SP3 reads. Opening a `.crx` or `.Z` file without the matching extra
+raises `ImportError` with an actionable message.
 
 ## Testing
 
-`tests/` contains 315 pytest tests across 24 test modules:
+`tests/` has 315 pytest tests across 24 modules:
 
-- 17 unit-test modules cover every src module independently.
+- 17 unit-test modules cover every src module on its own.
 - `test_api.py` integrates the dispatch.
 - `test_cli.py` smoke-tests the four subcommands.
 - `test_parity.py` cross-checks against an installed `georinex 1.16`.
-- `test_corrections.py` covers ANTEX/IONEX/CLK *application*.
+- `test_corrections.py` covers ANTEX/IONEX/CLK application.
 - `test_lambda.py`, `test_multifreq.py`, `test_rtk.py` cover RTK+AR.
 - `test_rtcm3.py`, `test_ntrip.py` cover the streaming layer.
 
-The full suite finishes in well under 3 seconds on a modern laptop.
+The full suite finishes in under 3 seconds on a modern laptop.
 
 ## Project layout
 

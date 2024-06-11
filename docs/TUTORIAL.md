@@ -1,13 +1,12 @@
 # Tutorial
 
-A guided walk through `rinexpy` from install to a working integer-fix
-RTK solution. Each section is short and runnable; copy-pasting the
-snippets into a Python REPL is the intended way to follow along.
+Install to integer-fix RTK in twelve sections. Snippets are meant to
+be pasted into a Python REPL.
 
 ## 1. Install
 
-`rinexpy` is local-only — clone the repo and let `uv` set up the
-environment. See the [README](../README.md) for the full uv install
+rinexpy isn't on PyPI. Clone the repo and let `uv` set up the
+environment. The [README](../README.md) has the full uv install
 recipe.
 
 ```sh
@@ -16,10 +15,10 @@ cd rinexpy
 uv sync --all-extras       # base + every reader extra + dev tools
 ```
 
-Or pick just the extras you need:
+Or pick the extras you need:
 
 ```sh
-uv sync                       # base only — RINEX 2/3, SP3, NetCDF
+uv sync                       # base only: RINEX 2/3, SP3, NetCDF
 uv sync --extra hatanaka      # + CRINEX (.crx) reads
 uv sync --extra lzw           # + .Z (LZW) reads
 uv sync --extra plot          # + matplotlib plotting helpers
@@ -30,8 +29,8 @@ uv sync --extra geo           # + pymap3d helpers
 
 Python 3.11+ is required.
 
-All snippets below are meant to be run inside the project venv:
-`uv run python` (or activate `.venv/bin/activate` first).
+Run the snippets below inside the project venv: `uv run python`, or
+activate `.venv/bin/activate` first.
 
 ## 2. Read your first file
 
@@ -43,8 +42,8 @@ print(obs)
 ```
 
 `load` auto-detects the file kind: RINEX 2/3 NAV/OBS, SP3-a/c/d, or
-already-converted NetCDF. The result is an `xarray.Dataset` (or a
-`{"nav": ..., "obs": ...}` dict for NetCDFs containing both groups).
+an already-converted NetCDF. The result is an `xarray.Dataset`, or a
+`{"nav": ..., "obs": ...}` dict for NetCDFs holding both groups.
 
 ```python
 obs.attrs["filename"]    # 'obs3.01gage.10o'
@@ -55,9 +54,9 @@ obs["C1C"]               # one measurement type as a (time, sv) DataArray
 
 ## 3. Filter cheaply
 
-`rinexpy` skips records *during the parse* if they're outside the
-filter — opening a 24-hour 1 Hz file and selecting a 5-minute window
-takes milliseconds, not seconds.
+rinexpy drops records during the parse if they fall outside the
+filter. Opening a 24-hour 1 Hz file and selecting a 5-minute window
+takes milliseconds.
 
 ```python
 obs = rp.load(
@@ -72,8 +71,8 @@ obs = rp.load(
 
 ## 4. Stream a file larger than RAM
 
-Multi-day RINEX-3 files at 1 Hz with full constellation coverage can
-exceed local memory. Stream them one epoch at a time:
+Multi-day RINEX-3 at 1 Hz with full constellation coverage can
+exceed local memory. Stream one epoch at a time:
 
 ```python
 for time, ds in rp.iter_obs3_epochs("huge.rnx.gz"):
@@ -81,7 +80,7 @@ for time, ds in rp.iter_obs3_epochs("huge.rnx.gz"):
 ```
 
 `ds` is a single-time `xarray.Dataset` sized to the SVs present at
-that epoch only. Memory footprint is constant in file size.
+that epoch. Memory footprint stays constant in file size.
 
 ## 5. Convert a directory in parallel
 
@@ -155,7 +154,7 @@ print("Solved (lat, lon, alt):", sol["lla"])
 print("Receiver clock bias:    ", sol["clock_bias"], "s")
 ```
 
-See `examples/06_spp_positioning.py` for a runnable noise-free demo.
+`examples/06_spp_positioning.py` is a runnable noise-free demo.
 
 ## 9. RTK with LAMBDA integer fix
 
@@ -183,12 +182,12 @@ else:
     print("LAMBDA ratio test:", sol["lambda"]["ratio"])
 ```
 
-See `examples/07_rtk_baseline.py` for a noise-free synthetic demo
-that recovers a 5.4 m baseline to mm precision.
+`examples/07_rtk_baseline.py` is a noise-free synthetic demo that
+recovers a 5.4 m baseline to mm precision.
 
-## 10. NTRIP → RTCM3
+## 10. NTRIP to RTCM3
 
-Streaming live RTCM3 from an NTRIP caster and decoding messages:
+Stream live RTCM3 from an NTRIP caster and decode messages:
 
 ```python
 from rinexpy.ntrip import stream
@@ -214,7 +213,7 @@ for msg in iter_messages(buf):
     print(msg["msg_id"], msg.get("station_id"))
 ```
 
-The list of decoded message types and their fields is in `API.md`.
+Decoded message types and their fields are listed in `API.md`.
 
 ## 11. Tropospheric correction
 
@@ -236,10 +235,10 @@ zhd = saastamoinen(90.0, 100.0,                  # zenith dry delay
 slant_dry = zhd * m_h
 ```
 
-For coarser work the bare `saastamoinen(el_deg, alt)` (with default
-ICAO atmosphere) is enough; for el >= 15° it's accurate to ~1 cm.
+For coarser work the bare `saastamoinen(el_deg, alt)` (default ICAO
+atmosphere) is enough. At el >= 15° it's accurate to ~1 cm.
 
-## 12. Quality control + bookkeeping
+## 12. Quality control and bookkeeping
 
 ```python
 from rinexpy.tools import validate_file, concat_files, diff_datasets
@@ -261,9 +260,9 @@ if not delta["equal"]:
 
 ## What next?
 
-- The `examples/` directory has 8 runnable scripts covering each
-  workflow in this tutorial in more depth.
-- `COOKBOOK.md` has bite-sized recipes for common one-liners.
-- `API.md` has the per-symbol reference of everything that's exported.
-- `OPTIMIZATIONS.md` and `BENCHMARKS.md` explain the performance
-  story relative to `georinex`.
+- `examples/` has 8 runnable scripts covering each workflow above in
+  more depth.
+- `COOKBOOK.md` has short recipes for common one-liners.
+- `API.md` is the per-symbol reference for everything exported.
+- `OPTIMIZATIONS.md` and `BENCHMARKS.md` cover the performance story
+  relative to georinex.

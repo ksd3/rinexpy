@@ -1,13 +1,13 @@
 # rinexpy
 
-Modern, fast GNSS toolkit for Python.
+A fast RINEX reader for Python that grew into a GNSS toolkit.
 
-`rinexpy` started as a substantially rewritten descendant of
-[`georinex`](https://github.com/geospace-code/georinex) — same
-xarray-flavored output, same public API names, but the OBS3 / NAV3
-hot paths drop the O(N²) `xarray.merge`-per-epoch pattern. On the
-shared test corpus this is **13–33× faster** for RINEX-3 NAV/OBS
-files. From there the project grew the rest of a real GNSS stack.
+rinexpy is a fork of [georinex](https://github.com/geospace-code/georinex)
+with the OBS3 and NAV3 readers rewritten. Upstream builds an
+`xarray.Dataset` per epoch and merges them, which is O(N²) in epoch
+count. rinexpy fills a NumPy buffer once and builds the Dataset at
+the end. On the shared corpus that's 13-33× faster on RINEX-3
+NAV/OBS files.
 
 ## Quick start
 
@@ -22,27 +22,27 @@ obs.sel(sv="G07").C1C
 
 <div class="grid cards" markdown>
 
--   :material-school:{ .lg .middle } **New to rinexpy?**
+-   :material-school:{ .lg .middle } **New here?**
 
     ---
 
-    Walk through install -> RTK fix in 12 sections.
+    Install to RTK fix in 12 sections.
 
     [:octicons-arrow-right-24: Tutorial](TUTORIAL.md)
 
--   :material-clipboard-text:{ .lg .middle } **Looking for a one-liner?**
+-   :material-clipboard-text:{ .lg .middle } **Need a one-liner?**
 
     ---
 
-    Bite-sized recipes grouped by topic.
+    Short recipes grouped by topic.
 
     [:octicons-arrow-right-24: Cookbook](COOKBOOK.md)
 
--   :material-book-open-variant:{ .lg .middle } **Need the reference?**
+-   :material-book-open-variant:{ .lg .middle } **Want the reference?**
 
     ---
 
-    Per-symbol docs for all 43 public entries.
+    Per-symbol docs, 43 entries.
 
     [:octicons-arrow-right-24: API reference](API.md)
 
@@ -50,7 +50,7 @@ obs.sel(sv="G07").C1C
 
     ---
 
-    Six-layer module map and end-to-end dataflow.
+    Module map and dataflow.
 
     [:octicons-arrow-right-24: Architecture](ARCHITECTURE.md)
 
@@ -61,39 +61,45 @@ obs.sel(sv="G07").C1C
 | Path | Time (23-h 15-s OBS3 file) | vs georinex |
 |---|---|---|
 | `georinex` baseline | ~1100 ms | 1.0× |
-| `rinexpy` pure Python | 75 ms | **15×** |
-| `rinexpy[jit]` numba | 38 ms | **29×** |
-| `rinexpy[native]` C++ | 39 ms | **28×** |
+| `rinexpy` pure Python | 75 ms | 15× |
+| `rinexpy` + numba JIT | 38 ms | 29× |
+| `rinexpy` + C++ extension | 39 ms | 28× |
 
-See [Benchmarks](BENCHMARKS.md) for the full per-file breakdown and
-[Optimizations](OPTIMIZATIONS.md) for what changed under the hood.
+See [Benchmarks](BENCHMARKS.md) for the per-file breakdown and
+[Optimizations](OPTIMIZATIONS.md) for what changed.
 
 ## Install
 
-`rinexpy` is local-only — clone and let `uv` set it up:
+rinexpy isn't on PyPI. Clone the repo, let `uv` set it up.
 
 ```sh
 git clone https://github.com/ksd3/rinexpy
 cd rinexpy
-uv sync --all-extras       # base + every reader extra + dev tools
+uv sync --all-extras
 ```
 
-Python 3.11+ is required. See the [README](https://github.com/ksd3/rinexpy#install)
-for the full uv install recipe (macOS / Linux / Windows).
+Python 3.11 or newer. The [README](https://github.com/ksd3/rinexpy#install)
+has the uv install recipe for macOS, Linux, and Windows.
 
-## Coverage at a glance
+## Coverage
 
-- **Open ASCII**: RINEX 2/3/4 NAV/OBS, NMEA-0183, IGS clock/iono/antex
-- **Open binary**: SP3, BINEX, NetCDF, Zarr
-- **Streaming**: RTCM 2.x DGPS, RTCM 3.x + NTRIP
-- **Vendor binary**: u-blox UBX, Septentrio SBF, NovAtel OEM
-- **Raw subframes**: BeiDou D1/D2
-- **Math**: Keplerian -> ECEF, SP3 Lagrange interpolation, SPP, RTK with
-  full LAMBDA loop (single + dual freq), Klobuchar / Saastamoinen /
-  Niell / VMF1, GPT2w empirical met grid
+ASCII formats: RINEX 2, 3, 4 NAV/OBS, NMEA-0183, IGS clock/iono/antex.
 
-See [Compatibility table in README](https://github.com/ksd3/rinexpy#compatibility)
-for the full matrix with footnotes.
+Binary: SP3, BINEX, NetCDF, Zarr.
+
+Streaming: RTCM 2.x DGPS, RTCM 3.x with NTRIP.
+
+Vendor binary: u-blox UBX, Septentrio SBF, NovAtel OEM.
+
+Raw subframes: BeiDou D1/D2 (clock + iono only).
+
+Math: Keplerian to ECEF, SP3 Lagrange interpolation, single-point
+positioning, RTK with LAMBDA integer fixing (single and dual
+frequency), Klobuchar, Saastamoinen, Niell, VMF1, GPT2w empirical
+met grid.
+
+The [compatibility table in the README](https://github.com/ksd3/rinexpy#compatibility)
+has the full matrix and notes about what's full vs partial.
 
 ## Project info
 

@@ -1,30 +1,40 @@
 # Cookbook
 
-Short, copy-pasteable recipes for the common one-shot tasks. Each
-recipe is independent; assume `import rinexpy as rp` at the top.
+Recipes you can paste into a REPL. Each one stands alone; assume
+`import rinexpy as rp` at the top.
 
 ## Read
 
-### Load a single file regardless of format
+### Load a file, any format
+
+`rp.load` sniffs the file and dispatches. Works on NAV, OBS, SP3,
+and NetCDF.
 
 ```python
 data = rp.load("file.rnx.gz")           # auto-detect: NAV / OBS / SP3 / NetCDF
 ```
 
-### Open one variable for one satellite
+### One variable, one satellite
+
+Pull a single observable for one SV via xarray selection.
 
 ```python
 obs = rp.load("file.18o")
 gps_g07_c1 = obs["C1"].sel(sv="G07")
 ```
 
-### Get just the timestamps without parsing the data
+### Timestamps without the data
+
+Useful when you only need to see what's in a file before paying to
+parse it.
 
 ```python
 times = rp.gettime("file.18o")          # numpy.datetime64 array
 ```
 
-### Get just the header
+### Just the header
+
+Returns a plain dict keyed by RINEX header label.
 
 ```python
 hdr = rp.rinexheader("file.18o")
@@ -32,26 +42,37 @@ print(hdr["APPROX POSITION XYZ"])
 print(hdr["TIME OF FIRST OBS"])
 ```
 
-### Cheaply restrict to a time window during the read
+### Restrict by time window during the read
+
+Pushed down into the parser, so epochs outside the window aren't
+materialized.
 
 ```python
 obs = rp.load("big.rnx.gz", tlim=("2018-07-29T12:00", "2018-07-29T13:00"))
 ```
 
-### Cheaply restrict to a single GNSS
+### Restrict by constellation
+
+Pass a single letter or a set. Other systems get skipped while
+reading.
 
 ```python
 obs_gps_only = rp.load("mixed.rnx", use="G")            # GPS only
 obs_gps_gal  = rp.load("mixed.rnx", use={"G", "E"})     # GPS + Galileo
 ```
 
-### Decimate to every N seconds while reading
+### Decimate while reading
+
+Drops epochs at parse time. Cheaper than reading everything and
+slicing after.
 
 ```python
 obs_30s = rp.load("1hz.rnx.gz", interval=30)
 ```
 
-### Read only the carrier-phase observations
+### Carrier-phase only
+
+Pick the observables you care about and skip the rest.
 
 ```python
 obs = rp.load("file.18o", meas=["L1", "L2"])
@@ -59,21 +80,28 @@ obs = rp.load("file.18o", meas=["L1", "L2"])
 
 ## Write
 
-### Convert RINEX -> NetCDF
+### RINEX to NetCDF
+
+`out=` on `load` writes as it parses. Use `batch_convert` for a
+whole directory.
 
 ```python
 rp.load("input.18o", out="output.nc")               # one file
 rp.batch_convert("data/", "*.18o", "out/", workers=4)   # whole directory
 ```
 
-### Convert OBS dataset back to RINEX 3
+### OBS dataset back to RINEX 3
+
+Round-trip a filtered slice through the RINEX 3 writer.
 
 ```python
 obs = rp.load("input.18o", tlim=("2018-07-29", "2018-07-30"))
 rp.to_rinex_obs(obs, "filtered.rnx", version=3)
 ```
 
-### Write to Zarr instead of NetCDF (cloud workflows)
+### Zarr for cloud workflows
+
+NetCDF is the default sink; Zarr is there when you need it.
 
 ```python
 from rinexpy.zarr_io import to_zarr
@@ -84,14 +112,18 @@ to_zarr(obs, "out.zarr")
 
 ## Stream
 
-### Process one epoch at a time without loading the whole file
+### Iterate epoch by epoch
+
+Holds one epoch in memory at a time, so file size stops mattering.
 
 ```python
 for time, ds in rp.iter_obs3_epochs("huge.rnx.gz"):
     do_something(time, ds)
 ```
 
-### Stream + filter + decimate
+### Stream with filters
+
+All the `load` filters work on the iterator too.
 
 ```python
 for time, ds in rp.iter_obs3_epochs(
@@ -105,7 +137,9 @@ for time, ds in rp.iter_obs3_epochs(
 
 ## Multi-file
 
-### Concatenate a week of daily files
+### Concatenate daily files into a week
+
+Joins along the time axis. Handles small header drifts.
 
 ```python
 from rinexpy.tools import concat_files
@@ -113,7 +147,10 @@ from rinexpy.tools import concat_files
 obs_week = concat_files(["data/d001.18o", "data/d002.18o", "data/d003.18o"])
 ```
 
-### Compare two parsed datasets and find the first divergence
+### Diff two datasets
+
+Returns a dict with `equal` and a list of the first differences it
+finds. Handy when chasing parser regressions.
 
 ```python
 from rinexpy.tools import diff_datasets
@@ -126,7 +163,10 @@ if not delta["equal"]:
         print(diff)
 ```
 
-### Concurrent multi-file load via asyncio
+### Parallel loads via asyncio
+
+`aload_many` farms the reads out across the event loop. The
+parsers themselves still run on threads.
 
 ```python
 import asyncio
@@ -137,7 +177,9 @@ results = asyncio.run(aload_many(["a.18o", "b.18o", "c.18o"]))
 
 ## Geodesy
 
-### Convert ECEF <-> geodetic
+### ECEF and geodetic
+
+WGS-84 by default.
 
 ```python
 from rinexpy.geodesy import ecef_to_lla, lla_to_ecef
@@ -146,7 +188,9 @@ x, y, z = lla_to_ecef(40.0, -3.0, 100.0)
 lat, lon, alt = ecef_to_lla(x, y, z)
 ```
 
-### Compute az/el from receiver to satellites
+### Azimuth and elevation
+
+Receiver position in ECEF, satellites in ECEF, angles in degrees.
 
 ```python
 from rinexpy.geodesy import azimuth_elevation
@@ -157,7 +201,9 @@ sv_ecef = np.array([[2.66e7, 0, 0], [0, 2.66e7, 0]])
 az, el = azimuth_elevation(rx, sv_ecef)        # degrees
 ```
 
-### Compute DOP
+### DOP
+
+GDOP / PDOP / HDOP / VDOP / TDOP from the geometry matrix.
 
 ```python
 from rinexpy.geodesy import dop
@@ -166,7 +212,10 @@ out = dop(sv_ecef, rx)
 print(out["GDOP"], out["PDOP"], out["HDOP"])
 ```
 
-### Apply a tropospheric correction
+### Tropospheric delay
+
+Saastamoinen with default standard-atmosphere values. Pass `p`,
+`t`, `e` if you have met data.
 
 ```python
 from rinexpy.geodesy import saastamoinen
@@ -174,7 +223,9 @@ from rinexpy.geodesy import saastamoinen
 slant_delay_m = saastamoinen(el_deg=15.0, altitude_m=100.0)
 ```
 
-### Apply Klobuchar broadcast iono correction
+### Klobuchar ionospheric correction
+
+Coefficients come from the GPS NAV header.
 
 ```python
 from rinexpy.geodesy import klobuchar
@@ -186,7 +237,9 @@ delay_m = klobuchar(alpha, beta, (lat, lon, alt),
 
 ## Time
 
-### GPS week <-> datetime
+### GPS week and datetime
+
+Round-trips through GPS week / seconds-of-week.
 
 ```python
 from rinexpy.gpstime import datetime_to_gps, gps_to_datetime
@@ -196,7 +249,10 @@ week, sow = datetime_to_gps(datetime(2018, 1, 7))
 back = gps_to_datetime(week, sow)
 ```
 
-### Resolve a 10-bit broadcast week number
+### Resolve a 10-bit week number
+
+Broadcast week numbers roll over every 1024 weeks. Pass a hint
+date to disambiguate.
 
 ```python
 from rinexpy.gpstime import gps_week_rollover
@@ -206,7 +262,9 @@ full_week = gps_week_rollover(0, datetime.utcnow())
 
 ## SP3
 
-### Load + interpolate one satellite at one time
+### Load and interpolate one satellite
+
+Lagrange interpolation, default order 10. Returns ECEF in km.
 
 ```python
 sp3 = rp.load_sp3("igs19362.sp3c")
@@ -218,12 +276,18 @@ g05_pos = interp.position.sel(sv="G05").values     # ECEF in km
 
 ### Single-point positioning
 
+Iterative least-squares on pseudoranges. Returns ECEF, LLA, clock
+bias, and residuals.
+
 ```python
 sol = rp.spp_solve(sv_ecef, pseudoranges_m, max_iter=20)
 print(sol["lla"])
 ```
 
-### Float-only RTK baseline
+### Float baseline
+
+Double-difference solve without integer fixing. Use this as the
+input to LAMBDA.
 
 ```python
 from rinexpy.rtk import double_difference_solve
@@ -236,7 +300,11 @@ sol = double_difference_solve(
 print("Baseline (m):", sol["baseline"])
 ```
 
-### Full LAMBDA RTK fix
+### Full LAMBDA fix
+
+`rtk_fix` runs the float solve, fixes integers via LAMBDA, and
+applies the ratio test. `fixed_accepted` tells you whether the
+fix passed.
 
 ```python
 from rinexpy.rtk import rtk_fix
@@ -251,7 +319,10 @@ if sol["fixed_accepted"]:
     print("cm-level baseline:", sol["fixed"]["baseline"])
 ```
 
-### Resolve dual-frequency ambiguities via Wide-Lane
+### Wide-lane ambiguity resolution
+
+For dual-frequency receivers. Fixes the WL combination first, then
+backs out N1 and N2.
 
 ```python
 from rinexpy.multifreq import lambda_dual_freq
@@ -265,7 +336,9 @@ print("Fraction fixed:", out["fraction_fixed"])
 
 ## Plotting
 
-### Time series of L1 carrier phase per satellite
+### L1 phase time series
+
+One line per satellite. Needs the `[plot]` extra.
 
 ```python
 from rinexpy.plots import obstimeseries
@@ -275,13 +348,16 @@ obstimeseries(rp.load("file.18o"))
 plt.show()
 ```
 
-### Skyplot of all satellites in a NAV file
+### Skyplot
 
-See the recipe in `TUTORIAL.md` § 7.
+See `TUTORIAL.md` § 7.
 
 ## RTCM3 / NTRIP
 
-### Decode a captured RTCM3 byte stream
+### Decode a captured RTCM3 stream
+
+`iter_messages` yields one parsed message at a time. `check_crc`
+trades a little speed for catching bit errors.
 
 ```python
 import io
@@ -292,7 +368,10 @@ with open("capture.bin", "rb") as fp:
         print(msg["msg_id"])
 ```
 
-### Connect to an NTRIP caster and stream
+### Pull a sourcetable, then stream
+
+Sourcetables list the mountpoints a caster offers. Pick one and
+open a stream.
 
 ```python
 from rinexpy.ntrip import fetch_sourcetable, stream
@@ -310,7 +389,9 @@ for chunk in bytes_iter:
 
 ## Receiver-format decoders
 
-### Decode NMEA-0183 from a serial-port log
+### NMEA-0183 from a serial log
+
+Plain text. `iter_lines` returns dicts keyed by sentence type.
 
 ```python
 from rinexpy.nmea import iter_lines
@@ -321,7 +402,9 @@ with open("nmea.log") as fp:
             print(msg["lat"], msg["lon"], msg["altitude_m"])
 ```
 
-### Decode u-blox UBX from a binary capture
+### u-blox UBX
+
+Match on `(msg_class, msg_id)`. The pair `(0x01, 0x07)` is NAV-PVT.
 
 ```python
 from rinexpy.ubx import iter_messages
@@ -332,7 +415,9 @@ with open("ublox.ubx", "rb") as fp:
             print(msg["lat_deg"], msg["lon_deg"], msg["fix_type"])
 ```
 
-### Decode Septentrio SBF blocks
+### Septentrio SBF
+
+Block ID 4007 is PVTGeodetic.
 
 ```python
 from rinexpy.sbf import iter_blocks
@@ -343,7 +428,9 @@ with open("septentrio.sbf", "rb") as fp:
             print(blk["lat_rad"], blk["lon_rad"], blk["height_m"])
 ```
 
-### Decode NovAtel OEM logs
+### NovAtel OEM
+
+Message 42 is BESTPOS.
 
 ```python
 from rinexpy.novatel import iter_messages
@@ -354,7 +441,10 @@ with open("novatel.bin", "rb") as fp:
             print(msg["lat_deg"], msg["lon_deg"], msg["height_m"])
 ```
 
-### Walk a UNAVCO BINEX archive
+### Walk a BINEX archive
+
+UNAVCO's container format. Bodies come back as raw bytes; record
+IDs and lengths are parsed.
 
 ```python
 from rinexpy.binex import iter_records
@@ -364,7 +454,10 @@ with open("archive.bnx", "rb") as fp:
         print(f"record {rec['record_id']:#04x}  {rec['length']} bytes")
 ```
 
-### Decode legacy RTCM 2.x DGPS corrections
+### RTCM 2.x DGPS
+
+Legacy format from beacon receivers. Message 1 carries the
+pseudorange corrections.
 
 ```python
 from rinexpy.rtcm2 import iter_messages
@@ -377,7 +470,10 @@ with open("dgps.rtcm2", "rb") as fp:
                       f"  RRC={c['rrc_m_s']:+.4f} m/s  IODE={c['iode']}")
 ```
 
-### Decode a captured BeiDou D1 subframe
+### BeiDou D1 subframe 1
+
+Subframe 1 carries the clock parameters and iono coefficients.
+Feed it ten 30-bit words from your receiver or from RTCM3 1042.
 
 ```python
 from rinexpy.beidou import decode_d1_subframe1
@@ -391,7 +487,10 @@ print(f"BDS week {nav['week']}, t_oc {nav['t_oc_s']} s, "
 
 ## QC + tooling
 
-### Quick QC report on a file
+### Quick QC report
+
+Counts epochs, infers the nominal interval, flags gaps and bad
+records.
 
 ```python
 from rinexpy.tools import validate_file
@@ -400,7 +499,9 @@ rep = validate_file("file.18o")
 print(rep["n_epochs"], rep["interval_seconds"], rep["warnings"])
 ```
 
-### Walk a directory finding bad files
+### Walk a directory looking for bad files
+
+Pair `validate_file` with `Path.glob` to triage an archive.
 
 ```python
 from pathlib import Path

@@ -2,17 +2,17 @@
 
 Optional C++ acceleration for [`rinexpy`](https://github.com/ksd3/rinexpy).
 
-This package contains a single compiled extension (`rinexpy_native._ext`)
-that replaces the OBS3 fixed-width decoder with a hand-tuned C++17
-implementation. Once installed, `rinexpy.obs3` auto-detects it and uses
-it transparently — there is **no** API change on the rinexpy side.
+A single compiled extension (`rinexpy_native._ext`) that replaces
+the OBS3 fixed-width decoder with a C++17 implementation. Once
+installed, `rinexpy.obs3` picks it up and uses it transparently.
+The rinexpy API doesn't change.
 
-## Why a separate package?
+## Separate package
 
-`rinexpy` itself is intentionally pure-Python: a clone +
-`uv sync` works on any Python 3.11+ on any OS without a compiler.
-Some users want extra speed at the cost of a compiled wheel;
-that's what this package is for.
+rinexpy stays pure-Python so a clone plus `uv sync` works on any
+Python 3.11+ on any OS without a compiler. Some users want extra
+speed at the cost of a compiled wheel; that's what this package
+is for.
 
 From the parent repo:
 
@@ -20,7 +20,7 @@ From the parent repo:
 uv sync --extra native       # resolves this package from ./native/
 ```
 
-Or build/install it standalone (see [Build](#build) below).
+Or build it standalone (see [Build](#build) below).
 
 ## Performance
 
@@ -39,7 +39,7 @@ uv pip install scikit-build-core nanobind cmake
 uv pip install -e .
 ```
 
-This compiles the `_ext` extension and installs the package in editable
+Compiles the `_ext` extension and installs the package in editable
 mode.
 
 ## License
