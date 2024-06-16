@@ -80,6 +80,7 @@ directly.
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Module map and dataflow. |
 | [OPTIMIZATIONS.md](docs/OPTIMIZATIONS.md) | What changed vs georinex. |
 | [BENCHMARKS.md](docs/BENCHMARKS.md) | Measured perf numbers. |
+| [ROADMAP.md](ROADMAP.md) | What's likely to land next. |
 | [examples/](examples/) | 8 runnable scripts. |
 
 ## Compatibility
