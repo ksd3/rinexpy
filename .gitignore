@@ -19,6 +19,7 @@ venv/
 .benchmarks/
 
 SCRATCHPAD.md
+ROADMAP.md
 
 # mkdocs files copied at build time from the repo root
 docs/CHANGELOG.md
