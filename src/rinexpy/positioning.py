@@ -15,6 +15,7 @@ default; pass ``apply_iono=True`` plus a NAV dataset with broadcast
 from __future__ import annotations
 
 import logging
+import math
 from datetime import datetime
 
 import numpy as np
@@ -25,6 +26,60 @@ from .gpstime import datetime_to_gps
 log = logging.getLogger(__name__)
 
 _C = 299_792_458.0  # speed of light, m/s
+
+
+# Acklam's coefficients for the inverse standard-normal CDF.
+_ACKLAM_A = (
+    -3.969683028665376e1, 2.209460984245205e2, -2.759285104469687e2,
+    1.383577518672690e2, -3.066479806614716e1, 2.506628277459239e0,
+)
+_ACKLAM_B = (
+    -5.447609879822406e1, 1.615858368580409e2, -1.556989798598866e2,
+    6.680131188771972e1, -1.328068155288572e1,
+)
+_ACKLAM_C = (
+    -7.784894002430293e-3, -3.223964580411365e-1, -2.400758277161838e0,
+    -2.549732539343734e0, 4.374664141464968e0, 2.938163982698783e0,
+)
+_ACKLAM_D = (
+    7.784695709041462e-3, 3.224671290700398e-1, 2.445134137142996e0,
+    3.754408661907416e0,
+)
+
+
+def _norm_quantile(p: float) -> float:
+    """Inverse standard-normal CDF (Acklam). Accurate to ~1e-9 over (0, 1)."""
+    if not 0.0 < p < 1.0:
+        raise ValueError(f"_norm_quantile: p must be in (0, 1), got {p}")
+    p_low = 0.02425
+    a, b, c, d = _ACKLAM_A, _ACKLAM_B, _ACKLAM_C, _ACKLAM_D
+    if p < p_low:
+        q = math.sqrt(-2.0 * math.log(p))
+        return (((((c[0]*q + c[1])*q + c[2])*q + c[3])*q + c[4])*q + c[5]) / (
+            (((d[0]*q + d[1])*q + d[2])*q + d[3])*q + 1.0
+        )
+    if p <= 1.0 - p_low:
+        q = p - 0.5
+        r = q * q
+        return (((((a[0]*r + a[1])*r + a[2])*r + a[3])*r + a[4])*r + a[5]) * q / (
+            (((((b[0]*r + b[1])*r + b[2])*r + b[3])*r + b[4])*r + 1.0)
+        )
+    q = math.sqrt(-2.0 * math.log(1.0 - p))
+    return -(((((c[0]*q + c[1])*q + c[2])*q + c[3])*q + c[4])*q + c[5]) / (
+        (((d[0]*q + d[1])*q + d[2])*q + d[3])*q + 1.0
+    )
+
+
+def _chi2_quantile(p: float, df: int) -> float:
+    """Wilson-Hilferty chi-squared inverse CDF.
+
+    Accuracy is ~3% at df=5 and tightens to ~1% by df=10. Good enough
+    for an integrity threshold; not a scipy.stats.chi2.ppf replacement.
+    """
+    if df < 1:
+        raise ValueError(f"_chi2_quantile: df must be >= 1, got {df}")
+    z = _norm_quantile(p)
+    return df * (1.0 - 2.0 / (9.0 * df) + z * math.sqrt(2.0 / (9.0 * df))) ** 3
 
 
 def spp_solve(
@@ -147,4 +202,103 @@ def apply_klobuchar_correction(
     return out
 
 
-__all__ = ["apply_klobuchar_correction", "spp_solve"]
+def spp_solve_raim(
+    sv_ecef: np.ndarray,
+    pseudoranges: np.ndarray,
+    *,
+    initial_guess: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    max_iter: int = 10,
+    tol: float = 1e-3,
+    sigma_pr: float = 5.0,
+    p_fa: float = 1e-4,
+    max_exclusions: int = 2,
+) -> dict:
+    """SPP with chi-squared RAIM fault detection and exclusion.
+
+    Wraps :func:`spp_solve`. After each solve, computes the residual
+    chi-squared test statistic and compares it against the threshold for
+    the given false-alarm probability. If the test fails, drops the SV
+    with the largest residual and re-solves, up to ``max_exclusions``
+    times.
+
+    Parameters
+    ----------
+    sv_ecef, pseudoranges, initial_guess, max_iter, tol:
+        As for :func:`spp_solve`.
+    sigma_pr:
+        Assumed 1-sigma pseudorange noise in meters. Default 5.0.
+    p_fa:
+        Per-epoch false-alarm probability. Default 1e-4 (about one false
+        alarm per 10,000 epochs). The chi-squared threshold is
+        ``_chi2_quantile(1 - p_fa, df)`` with ``df = n_sv - 4``.
+    max_exclusions:
+        Cap on how many SVs to drop before giving up.
+
+    Returns
+    -------
+    dict
+        Same keys as :func:`spp_solve`, plus:
+
+        - ``raim_test``: SSE divided by ``sigma_pr ** 2`` (chi-squared
+          statistic).
+        - ``raim_threshold``: chi-squared threshold for the kept SV set.
+        - ``fault_detected``: True if any solve failed the test.
+        - ``excluded_svs``: indices (into the input arrays) that were
+          dropped.
+        - ``raim_failed``: True if RAIM ran out of exclusions without a
+          clean solve.
+
+    Raises
+    ------
+    ValueError
+        If fewer than 5 SVs are supplied (RAIM needs at least one degree
+        of freedom).
+    """
+    sv = np.asarray(sv_ecef, dtype=float)
+    pr = np.asarray(pseudoranges, dtype=float)
+    n = sv.shape[0]
+    if n < 5:
+        raise ValueError("RAIM needs >= 5 pseudoranges to have any DoF")
+
+    kept = list(range(n))
+    excluded: list[int] = []
+    fault_detected = False
+    sol: dict = {}
+    test = float("nan")
+    threshold = float("nan")
+
+    for _ in range(max_exclusions + 1):
+        sub_sv = sv[kept]
+        sub_pr = pr[kept]
+        sol = spp_solve(sub_sv, sub_pr, initial_guess=initial_guess,
+                        max_iter=max_iter, tol=tol)
+        residuals = sol["residuals"]
+        sse = float(np.sum(residuals * residuals))
+        test = sse / (sigma_pr * sigma_pr)
+        df = len(kept) - 4
+        if df < 1:
+            break
+        threshold = _chi2_quantile(1.0 - p_fa, df)
+        if test <= threshold:
+            sol["raim_test"] = test
+            sol["raim_threshold"] = threshold
+            sol["fault_detected"] = fault_detected
+            sol["excluded_svs"] = list(excluded)
+            sol["raim_failed"] = False
+            return sol
+        fault_detected = True
+        worst_in_sub = int(np.argmax(np.abs(residuals)))
+        excluded.append(kept[worst_in_sub])
+        kept.pop(worst_in_sub)
+        if len(kept) < 5:
+            break
+
+    sol["raim_test"] = test
+    sol["raim_threshold"] = threshold
+    sol["fault_detected"] = True
+    sol["excluded_svs"] = list(excluded)
+    sol["raim_failed"] = True
+    return sol
+
+
+__all__ = ["apply_klobuchar_correction", "spp_solve", "spp_solve_raim"]
