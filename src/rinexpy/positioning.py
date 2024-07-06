@@ -301,4 +301,104 @@ def spp_solve_raim(
     return sol
 
 
-__all__ = ["apply_klobuchar_correction", "spp_solve", "spp_solve_raim"]
+_GPS_F1 = 1575.42e6
+_GPS_F2 = 1227.60e6
+_GAMMA_L2 = (_GPS_F1 / _GPS_F2) ** 2
+
+
+def tgd_from_nav(nav, epoch, *, field: str = "TGD") -> dict[str, float]:
+    """Extract per-SV group-delay TGD values from a NAV dataset.
+
+    For each SV, picks the latest broadcast record with ``time <= epoch``.
+    SVs without a valid record at the query epoch (or with a NaN TGD) are
+    omitted from the result.
+
+    Parameters
+    ----------
+    nav:
+        ``xarray.Dataset`` from ``rinexnav`` containing ``TGD`` (GPS),
+        ``TGD1``/``TGD2`` (BeiDou), or ``BGDe5a``/``BGDe5b`` (Galileo).
+    epoch:
+        Query epoch (``datetime`` or ``numpy.datetime64``).
+    field:
+        Which broadcast field to pull. Default ``"TGD"`` for GPS.
+
+    Returns
+    -------
+    dict
+        ``{sv_label: tgd_seconds}``. Only entries with a valid record.
+    """
+    epoch_ns = (
+        epoch if isinstance(epoch, np.datetime64) else np.datetime64(epoch, "ns")
+    )
+    out: dict[str, float] = {}
+    if field not in nav:
+        return out
+    arr = nav[field]
+    for sv in nav.sv.values:
+        try:
+            sv_arr = arr.sel(sv=sv).dropna(dim="time")
+        except (KeyError, ValueError):
+            continue
+        if sv_arr.time.size == 0:
+            continue
+        valid = sv_arr.time.values <= epoch_ns
+        if not valid.any():
+            continue
+        idx = int(np.flatnonzero(valid)[-1])
+        v = float(sv_arr.values[idx])
+        if np.isfinite(v):
+            out[str(sv)] = v
+    return out
+
+
+def apply_tgd_correction(
+    pseudoranges: np.ndarray,
+    sv_labels: list[str],
+    tgd_by_sv: dict[str, float],
+    *,
+    gamma: float = 1.0,
+) -> np.ndarray:
+    """Subtract the broadcast group delay from each pseudorange.
+
+    The standard correction is ``PR_corrected = PR - c * gamma * TGD``.
+    For GPS, ``gamma=1`` on L1 and ``gamma=(f_L1/f_L2)**2`` on L2. For the
+    ionosphere-free L1/L2 combination, TGD cancels and ``gamma=0`` leaves
+    the pseudoranges unchanged.
+
+    Parameters
+    ----------
+    pseudoranges:
+        ``(n_sv,)`` pseudoranges in meters.
+    sv_labels:
+        SV identifiers, parallel to ``pseudoranges``. Entries missing from
+        ``tgd_by_sv`` are passed through unchanged.
+    tgd_by_sv:
+        ``{sv_label: tgd_seconds}`` map, typically from :func:`tgd_from_nav`.
+    gamma:
+        Frequency scale. 1.0 for the primary frequency, ``(f1/f2)**2`` for
+        the secondary, 0 for the ionosphere-free combination.
+
+    Returns
+    -------
+    ndarray
+        Corrected pseudoranges (a copy).
+    """
+    out = np.asarray(pseudoranges, dtype=float).copy()
+    if gamma == 0.0:
+        return out
+    for i, sv in enumerate(sv_labels):
+        tgd = tgd_by_sv.get(sv)
+        if tgd is None or not np.isfinite(tgd):
+            continue
+        out[i] -= _C * gamma * tgd
+    return out
+
+
+__all__ = [
+    "apply_klobuchar_correction",
+    "apply_tgd_correction",
+    "spp_solve",
+    "spp_solve_raim",
+    "tgd_from_nav",
+]
