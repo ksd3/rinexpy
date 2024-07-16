@@ -268,9 +268,86 @@ def detect_slips(
     return {"slips_by_sv": slips_by_sv, "methods_by_sv": methods_by_sv}
 
 
+def hatch_filter(
+    pr_m: np.ndarray,
+    phase_m: np.ndarray,
+    *,
+    window: int = 100,
+    slips: np.ndarray | None = None,
+) -> np.ndarray:
+    """Carrier-smooth a code pseudorange series via the Hatch filter.
+
+    The recursion is
+
+        P_s[k] = (P[k] + (m - 1) * (P_s[k-1] + (phi[k] - phi[k-1]))) / m
+
+    where ``m`` ramps from 1 up to ``window`` as samples accumulate.
+    The carrier phase tracks range cleanly between slips, so the
+    smoothed pseudorange inherits carrier-grade noise while keeping
+    the code's absolute scale (no integer ambiguity).
+
+    Parameters
+    ----------
+    pr_m:
+        ``(n_epoch,)`` raw code pseudorange in meters. NaN where
+        there's no observation.
+    phase_m:
+        ``(n_epoch,)`` carrier phase in meters (cycles times the
+        wavelength). NaN where there's no observation.
+    window:
+        Maximum smoothing window in epochs. Default 100 (a common
+        choice; larger windows give smoother output but more lag if
+        the ionosphere drifts).
+    slips:
+        Optional ``(n_epoch,)`` bool mask. ``True`` at any epoch
+        resets the filter to take the raw ``pr_m`` value (i.e. as
+        if the SV had just been reacquired). Pair with the output
+        of :func:`detect_slips_mw` or similar.
+
+    Returns
+    -------
+    ndarray
+        ``(n_epoch,)`` smoothed pseudorange in meters. NaN epochs in
+        either input map to NaN in the output and reset the filter.
+
+    Raises
+    ------
+    ValueError
+        If ``pr_m`` and ``phase_m`` differ in shape, or ``window < 1``.
+    """
+    pr = np.asarray(pr_m, dtype=float)
+    phi = np.asarray(phase_m, dtype=float)
+    if pr.shape != phi.shape:
+        raise ValueError(
+            f"pr_m and phase_m must match shape; got {pr.shape} vs {phi.shape}"
+        )
+    if window < 1:
+        raise ValueError(f"window must be >= 1, got {window}")
+
+    n = len(pr)
+    out = np.full(n, np.nan)
+    m = 0
+    prev_phi = np.nan
+    for k in range(n):
+        if not np.isfinite(pr[k]) or not np.isfinite(phi[k]):
+            m = 0
+            prev_phi = np.nan
+            continue
+        slip_here = slips is not None and bool(slips[k])
+        if m == 0 or slip_here or not np.isfinite(prev_phi):
+            out[k] = pr[k]
+            m = 1
+        else:
+            m = min(m + 1, window)
+            out[k] = (pr[k] + (m - 1) * (out[k - 1] + (phi[k] - prev_phi))) / m
+        prev_phi = phi[k]
+    return out
+
+
 __all__ = [
     "detect_slips",
     "detect_slips_geometry_free",
     "detect_slips_mw",
     "detect_slips_phase_only",
+    "hatch_filter",
 ]
