@@ -16,10 +16,11 @@ passing ``port=443`` and a normal hostname.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import socket
 import ssl
-from collections.abc import Iterator
+from collections.abc import AsyncIterator, Iterator
 
 _USER_AGENT = "NTRIP rinexpy/0.1"
 
@@ -207,4 +208,110 @@ def stream(
         sock.close()
 
 
-__all__ = ["fetch_sourcetable", "stream"]
+async def _aopen_connection(host: str, port: int, *, timeout: float = 30.0):
+    """Open an asyncio TCP connection. TLS for port 443."""
+    ctx = ssl.create_default_context() if port == 443 else None
+    return await asyncio.wait_for(
+        asyncio.open_connection(host, port, ssl=ctx),
+        timeout=timeout,
+    )
+
+
+async def afetch_sourcetable(
+    host: str,
+    *,
+    port: int = 2101,
+    timeout: float = 30.0,
+) -> list[dict]:
+    """Async equivalent of :func:`fetch_sourcetable`.
+
+    Same arguments, same return type. Lets the call run inside an
+    ``asyncio`` event loop alongside other I/O.
+    """
+    reader, writer = await _aopen_connection(host, port, timeout=timeout)
+    try:
+        request = (
+            f"GET / HTTP/1.0\r\nHost: {host}\r\n"
+            f"User-Agent: {_USER_AGENT}\r\nConnection: close\r\n\r\n"
+        ).encode("ascii")
+        writer.write(request)
+        await writer.drain()
+        body = await asyncio.wait_for(reader.read(), timeout=timeout)
+    finally:
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except (asyncio.CancelledError, OSError):
+            pass
+    return _parse_sourcetable(body.decode("ascii", errors="ignore"))
+
+
+async def astream(
+    host: str,
+    mountpoint: str,
+    *,
+    user: str = "",
+    password: str = "",
+    port: int = 2101,
+    timeout: float = 30.0,
+    chunk_size: int = 4096,
+) -> AsyncIterator[bytes]:
+    """Async equivalent of :func:`stream`.
+
+    Yields raw RTCM3 bytes. Use as::
+
+        async for chunk in astream(host, mp, port=port):
+            buf.write(chunk)
+
+    Same semantics as the sync ``stream`` (Basic auth, NTRIP v1/v2
+    response handling, indefinite payload). Cancellation propagates
+    cleanly: closing the underlying reader is enough.
+
+    Raises
+    ------
+    ConnectionError
+        If the caster rejects the request or doesn't send a 200 status.
+    """
+    reader, writer = await _aopen_connection(host, port, timeout=timeout)
+    try:
+        headers = [
+            f"GET /{mountpoint} HTTP/1.0",
+            f"Host: {host}",
+            f"User-Agent: {_USER_AGENT}",
+            "Ntrip-Version: Ntrip/2.0",
+        ]
+        if user or password:
+            headers.append(f"Authorization: Basic {_basic_auth(user, password)}")
+        headers.append("Connection: close")
+        request = ("\r\n".join(headers) + "\r\n\r\n").encode("ascii")
+        writer.write(request)
+        await writer.drain()
+
+        buf = b""
+        while b"\r\n\r\n" not in buf and b"ICY 200 OK\r\n" not in buf:
+            chunk = await asyncio.wait_for(reader.read(256), timeout=timeout)
+            if not chunk:
+                break
+            buf += chunk
+        if not (b"ICY 200" in buf or b"200 OK" in buf):
+            raise ConnectionError(f"NTRIP caster rejected request: {buf[:200]!r}")
+        if b"\r\n\r\n" in buf:
+            _, _, leftover = buf.partition(b"\r\n\r\n")
+        else:
+            _, _, leftover = buf.partition(b"\r\n")
+        if leftover:
+            yield leftover
+        while True:
+            chunk = await asyncio.wait_for(reader.read(chunk_size), timeout=timeout)
+            if not chunk:
+                break
+            yield chunk
+    finally:
+        writer.close()
+        try:
+            await writer.wait_closed()
+        except (asyncio.CancelledError, OSError):
+            pass
+
+
+__all__ = ["afetch_sourcetable", "astream", "fetch_sourcetable", "stream"]
