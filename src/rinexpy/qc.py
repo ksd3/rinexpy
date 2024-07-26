@@ -268,6 +268,103 @@ def detect_slips(
     return {"slips_by_sv": slips_by_sv, "methods_by_sv": methods_by_sv}
 
 
+def mp1(
+    p1_m: np.ndarray,
+    l1_m: np.ndarray,
+    l2_m: np.ndarray,
+    *,
+    f1: float = _F_L1,
+    f2: float = _F_L2,
+) -> np.ndarray:
+    """TEQC-style MP1 multipath combination on the primary frequency.
+
+    ``MP1 = P1 - (1 + 2/(alpha - 1)) * L1 + (2/(alpha - 1)) * L2``
+
+    with ``alpha = (f1/f2)^2``. Cancels the geometric range, the
+    troposphere, and the satellite and receiver clocks. What's left is
+    the carrier-phase ambiguity (a constant between slips), a slow
+    ionospheric drift, and the code multipath + code noise.
+
+    Parameters
+    ----------
+    p1_m:
+        ``(n_epoch,)`` primary-frequency pseudorange in meters.
+    l1_m, l2_m:
+        ``(n_epoch,)`` carrier phase on the two frequencies, in meters
+        (cycles times the wavelength).
+    f1, f2:
+        Frequencies in Hz. Defaults are GPS L1, L2.
+
+    Returns
+    -------
+    ndarray
+        ``(n_epoch,)`` MP1 series, in meters.
+    """
+    alpha = (f1 / f2) ** 2
+    k = 2.0 / (alpha - 1.0)
+    return np.asarray(p1_m, float) - (1.0 + k) * np.asarray(l1_m, float) + k * np.asarray(l2_m, float)
+
+
+def mp2(
+    p2_m: np.ndarray,
+    l1_m: np.ndarray,
+    l2_m: np.ndarray,
+    *,
+    f1: float = _F_L1,
+    f2: float = _F_L2,
+) -> np.ndarray:
+    """TEQC-style MP2 multipath combination on the secondary frequency.
+
+    ``MP2 = P2 - (2*alpha/(alpha - 1)) * L1 + (2*alpha/(alpha - 1) - 1) * L2``
+
+    with ``alpha = (f1/f2)^2``. Same cancellation properties as
+    :func:`mp1` but on the second-frequency code.
+    """
+    alpha = (f1 / f2) ** 2
+    k = 2.0 * alpha / (alpha - 1.0)
+    return np.asarray(p2_m, float) - k * np.asarray(l1_m, float) + (k - 1.0) * np.asarray(l2_m, float)
+
+
+def multipath_rms(mp_m: np.ndarray, slips: np.ndarray | None = None) -> float:
+    """Per-arc RMS of an MP series, averaged across arcs.
+
+    Splits ``mp_m`` at the ``slips`` indices (or treats the whole series
+    as a single arc when ``slips`` is None), subtracts each arc's mean,
+    and returns the average RMS across arcs. NaN samples are dropped.
+    Arcs shorter than 2 valid samples are skipped.
+
+    Parameters
+    ----------
+    mp_m:
+        ``(n_epoch,)`` MP series from :func:`mp1` or :func:`mp2`.
+    slips:
+        Optional ``(n_epoch,)`` bool mask marking cycle-slip epochs;
+        each True splits the series into a new arc.
+
+    Returns
+    -------
+    float
+        Arc-averaged RMS in meters. NaN if no arc has enough samples.
+    """
+    mp = np.asarray(mp_m, float)
+    n = len(mp)
+    if slips is None:
+        boundaries = [0, n]
+    else:
+        slip_idx = np.flatnonzero(np.asarray(slips, bool)).tolist()
+        boundaries = [0, *slip_idx, n]
+    rms: list[float] = []
+    for i in range(len(boundaries) - 1):
+        arc = mp[boundaries[i] : boundaries[i + 1]]
+        arc = arc[np.isfinite(arc)]
+        if arc.size < 2:
+            continue
+        rms.append(float(np.std(arc - arc.mean())))
+    if not rms:
+        return float("nan")
+    return float(np.mean(rms))
+
+
 def hatch_filter(
     pr_m: np.ndarray,
     phase_m: np.ndarray,
@@ -350,4 +447,7 @@ __all__ = [
     "detect_slips_mw",
     "detect_slips_phase_only",
     "hatch_filter",
+    "mp1",
+    "mp2",
+    "multipath_rms",
 ]
