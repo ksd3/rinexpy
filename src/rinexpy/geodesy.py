@@ -448,6 +448,79 @@ def saastamoinen(
     return float(0.002277 / cos_z * (P + (1255.0 / T + 0.05) * e - tan_z2))
 
 
+def phase_wind_up_correction(
+    sat_xhat,
+    sat_yhat,
+    rx_xhat,
+    rx_yhat,
+    los_rx_to_sat,
+    *,
+    previous_cycles: float = 0.0,
+) -> float:
+    """Carrier-phase wind-up correction (Wu et al. 1993), in cycles.
+
+    Apply as ``phi_corrected_cycles = phi_observed_cycles + correction``.
+    The correction tracks the rotation of the receiver antenna's
+    effective dipole relative to the satellite's, projected onto the
+    plane perpendicular to the line of sight. Required for cm-level
+    carrier-phase PPP.
+
+    Parameters
+    ----------
+    sat_xhat, sat_yhat:
+        ``(3,)`` satellite body x and y axes in ECEF. Conventionally
+        computed from the sun position and the satellite position; the
+        body z-axis points toward Earth.
+    rx_xhat, rx_yhat:
+        ``(3,)`` receiver antenna x and y axes in ECEF. For a north-east-
+        up mount, ``x_hat`` is east in ECEF and ``y_hat`` is north.
+    los_rx_to_sat:
+        ``(3,)`` line of sight from the receiver to the satellite. Need
+        not be a unit vector; we normalise it internally.
+    previous_cycles:
+        Last correction value for this satellite, used to resolve the
+        2*pi ambiguity of ``arccos`` (continuity across epochs).
+        Default 0.
+
+    Returns
+    -------
+    float
+        Wind-up correction in cycles, tracked from ``previous_cycles``.
+    """
+    k = np.asarray(los_rx_to_sat, dtype=float)
+    norm_k = np.linalg.norm(k)
+    if norm_k == 0.0:
+        return previous_cycles
+    k = k / norm_k
+    xs = np.asarray(sat_xhat, dtype=float)
+    ys = np.asarray(sat_yhat, dtype=float)
+    xr = np.asarray(rx_xhat, dtype=float)
+    yr = np.asarray(rx_yhat, dtype=float)
+
+    # Satellite effective dipole projected onto the plane perpendicular to k.
+    dprime = xs - k * np.dot(k, xs) - np.cross(k, ys)
+    # Receiver effective dipole projected onto the same plane.
+    # Same sign as the satellite so aligned antennas (xr=xs, yr=ys) give
+    # zero wind-up, which is the correct physical answer for RHCP on both ends.
+    d = xr - k * np.dot(k, xr) - np.cross(k, yr)
+
+    norm_dp = np.linalg.norm(dprime)
+    norm_d = np.linalg.norm(d)
+    if norm_dp == 0.0 or norm_d == 0.0:
+        return previous_cycles
+
+    cos_theta = float(np.dot(d, dprime) / (norm_d * norm_dp))
+    cos_theta = max(-1.0, min(1.0, cos_theta))
+    sign_val = float(np.sign(np.dot(k, np.cross(dprime, d))))
+    if sign_val == 0.0:
+        sign_val = 1.0
+    phi = sign_val * float(np.arccos(cos_theta)) / (2.0 * np.pi)
+
+    # Unwrap by picking the integer offset that minimises the jump.
+    n = round(previous_cycles - phi)
+    return float(phi + n)
+
+
 __all__ = [
     "azimuth_elevation",
     "dop",
@@ -455,6 +528,7 @@ __all__ = [
     "klobuchar",
     "lla_to_ecef",
     "niell_mapping",
+    "phase_wind_up_correction",
     "saastamoinen",
     "standard_atmosphere",
     "vmf1",
