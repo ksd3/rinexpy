@@ -395,9 +395,160 @@ def apply_tgd_correction(
     return out
 
 
+def iono_free_pseudorange(
+    p1_m: np.ndarray,
+    p2_m: np.ndarray,
+    *,
+    f1: float = _GPS_F1,
+    f2: float = _GPS_F2,
+) -> np.ndarray:
+    """Form the ionosphere-free pseudorange combination.
+
+    ``PR_IF = (alpha * P1 - P2) / (alpha - 1)``, with ``alpha = (f1/f2)**2``.
+    Cancels the first-order ionospheric delay (which scales as 1/f^2).
+    Residual second-order iono is sub-cm and ignored here.
+
+    Parameters
+    ----------
+    p1_m, p2_m:
+        ``(n_sv,)`` pseudoranges on the two frequencies, in meters.
+    f1, f2:
+        Frequencies in Hz. Defaults are GPS L1, L2.
+
+    Returns
+    -------
+    ndarray
+        ``(n_sv,)`` iono-free pseudorange in meters.
+    """
+    alpha = (f1 / f2) ** 2
+    p1 = np.asarray(p1_m, dtype=float)
+    p2 = np.asarray(p2_m, dtype=float)
+    return (alpha * p1 - p2) / (alpha - 1.0)
+
+
+def ppp_solve_code_only(
+    pseudoranges_if: np.ndarray,
+    sv_ecef: np.ndarray,
+    sat_clock_s: np.ndarray,
+    *,
+    tropospheric_delay_m: np.ndarray | None = None,
+    initial_guess: tuple[float, float, float] = (0.0, 0.0, 0.0),
+    max_iter: int = 20,
+    tol: float = 1e-3,
+) -> dict:
+    """Float code-only Precise Point Positioning.
+
+    Per-epoch least-squares solve for ``(x, y, z, dt_rx)`` using the
+    ionosphere-free pseudorange combination and precise satellite
+    products. Differs from :func:`spp_solve` in that the caller supplies
+    precise satellite ECEF positions (typically from SP3 +
+    :func:`rinexpy.interp.interpolate_sp3`), precise satellite clock
+    offsets (from CLK + :func:`rinexpy.clk.interpolate_clk`), and an
+    optional tropospheric delay correction (e.g. Saastamoinen or VMF1).
+
+    Expected accuracy: 30 - 50 cm horizontal, 50 - 100 cm vertical with
+    IGS final SP3 + CLK and a Saastamoinen-grade tropo model. Cm-level
+    accuracy needs carrier-phase observations with ambiguity estimation,
+    which is a follow-up.
+
+    Parameters
+    ----------
+    pseudoranges_if:
+        ``(n_sv,)`` iono-free pseudorange in meters, e.g. from
+        :func:`iono_free_pseudorange`.
+    sv_ecef:
+        ``(n_sv, 3)`` precise satellite positions at signal emission
+        time, in meters ECEF.
+    sat_clock_s:
+        ``(n_sv,)`` precise satellite clock offsets in seconds. Positive
+        means the satellite clock is ahead of true GPS time. Subtracted
+        from the pseudorange as ``PR + c * dt_sat``.
+    tropospheric_delay_m:
+        Optional ``(n_sv,)`` slant tropospheric delay in meters (e.g.
+        :func:`rinexpy.geodesy.saastamoinen` evaluated per SV). Subtracted
+        from the pseudorange.
+    initial_guess:
+        ECEF receiver position guess; default Earth's center.
+    max_iter:
+        Iteration cap. Raises ``RuntimeError`` if not converged in time.
+    tol:
+        Convergence tolerance on the position update norm, in meters.
+
+    Returns
+    -------
+    dict
+        Same keys as :func:`spp_solve`: ``position`` (ECEF tuple),
+        ``clock_bias`` (s), ``n_iter`` (int), ``residuals``
+        (``(n_sv,)``), ``lla`` (lat, lon, alt).
+
+    Raises
+    ------
+    ValueError
+        If fewer than 4 SVs are supplied or input shapes don't match.
+    RuntimeError
+        If the iteration does not converge within ``max_iter``.
+    """
+    pr = np.asarray(pseudoranges_if, dtype=float).copy()
+    sv = np.asarray(sv_ecef, dtype=float)
+    dt_sv = np.asarray(sat_clock_s, dtype=float)
+
+    if sv.ndim != 2 or sv.shape[1] != 3:
+        raise ValueError(f"sv_ecef must have shape (n_sv, 3), got {sv.shape}")
+    if pr.shape[0] != sv.shape[0] or dt_sv.shape[0] != sv.shape[0]:
+        raise ValueError(
+            f"input lengths must match: PR={pr.shape}, SV={sv.shape}, "
+            f"dt_sat={dt_sv.shape}"
+        )
+    if sv.shape[0] < 4:
+        raise ValueError("PPP needs >= 4 SVs")
+
+    # Apply the precise satellite clock correction. The sign convention is
+    # that pseudorange + c * dt_sat = geometric range + c * dt_rx_only.
+    pr_corrected = pr + _C * dt_sv
+    if tropospheric_delay_m is not None:
+        tropo = np.asarray(tropospheric_delay_m, dtype=float)
+        if tropo.shape[0] != sv.shape[0]:
+            raise ValueError(
+                f"tropospheric_delay_m length {tropo.shape[0]} != n_sv "
+                f"{sv.shape[0]}"
+            )
+        pr_corrected = pr_corrected - tropo
+
+    state = np.array([initial_guess[0], initial_guess[1], initial_guess[2], 0.0])
+    for it in range(max_iter):
+        x, y, z, dt_rx = state
+        diff = sv - np.array([x, y, z])
+        rho = np.linalg.norm(diff, axis=1)
+        pred = rho + _C * dt_rx
+        residuals = pr_corrected - pred
+        unit = -diff / rho[:, None]
+        g = np.hstack([unit, np.ones((sv.shape[0], 1)) * _C])
+        try:
+            update, *_ = np.linalg.lstsq(g, residuals, rcond=None)
+        except np.linalg.LinAlgError as e:
+            raise RuntimeError(f"PPP normal equations singular: {e}") from e
+        state += update
+        if np.linalg.norm(update[:3]) < tol:
+            x, y, z, dt_rx = state
+            try:
+                lat, lon, alt = ecef_to_lla(x, y, z)
+            except (ValueError, ZeroDivisionError):
+                lat = lon = alt = float("nan")
+            return {
+                "position": (float(x), float(y), float(z)),
+                "clock_bias": float(dt_rx),
+                "n_iter": it + 1,
+                "residuals": residuals,
+                "lla": (lat, lon, alt),
+            }
+    raise RuntimeError(f"PPP did not converge in {max_iter} iterations")
+
+
 __all__ = [
     "apply_klobuchar_correction",
     "apply_tgd_correction",
+    "iono_free_pseudorange",
+    "ppp_solve_code_only",
     "spp_solve",
     "spp_solve_raim",
     "tgd_from_nav",
