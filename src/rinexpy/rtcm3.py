@@ -115,7 +115,9 @@ def decode_message(msg_id: int, body: bytes) -> dict[str, Any]:
         1006: _decode_1006,
         1019: _decode_1019,
         1020: _decode_1020,
+        1029: _decode_1029,
         1033: _decode_1033,
+        1230: _decode_1230,
     }
     if msg_id in decoders:
         return decoders[msg_id](body)
@@ -294,6 +296,77 @@ def _decode_1004(body: bytes) -> dict[str, Any]:
         "smoothing_indicator": smooth,
         "smoothing_interval": smooth_iv,
         "satellites": sats,
+    }
+
+
+def _decode_1029(body: bytes) -> dict[str, Any]:
+    """Unicode (UTF-8) text message.
+
+    Free-form station-to-rover text, sent at arbitrary cadence.
+    """
+    bit = 12
+    sta_id = _bits(body, bit, 12)
+    bit += 12
+    mjd = _bits(body, bit, 16)
+    bit += 16
+    sod = _bits(body, bit, 17)
+    bit += 17
+    n_chars = _bits(body, bit, 7)
+    bit += 7
+    n_bytes = _bits(body, bit, 8)
+    bit += 8
+    raw = bytearray()
+    for _ in range(n_bytes):
+        raw.append(_bits(body, bit, 8))
+        bit += 8
+    return {
+        "msg_id": 1029,
+        "station_id": sta_id,
+        "mjd": mjd,
+        "sod_s": sod,
+        "n_chars": n_chars,
+        "n_bytes": n_bytes,
+        "text": raw.decode("utf-8", errors="replace"),
+    }
+
+
+def _decode_1230(body: bytes) -> dict[str, Any]:
+    """GLONASS L1/L2 code-phase biases.
+
+    Aligns GLONASS code measurements between receivers from different
+    manufacturers, which is needed before a multi-vendor RTK fix on
+    GLONASS will close. Decodes the 4-bit signal mask and the per-signal
+    16-bit signed bias scaled by 0.02 m.
+    """
+    bit = 12
+    sta_id = _bits(body, bit, 12)
+    bit += 12
+    bias_indicator = _bits(body, bit, 1)
+    bit += 1
+    bit += 3  # reserved
+    mask = _bits(body, bit, 4)
+    bit += 4
+
+    biases_m: dict[str, float] = {}
+    if mask & 0b1000:
+        biases_m["L1_CA"] = _bits(body, bit, 16, signed=True) * 0.02
+        bit += 16
+    if mask & 0b0100:
+        biases_m["L1_P"] = _bits(body, bit, 16, signed=True) * 0.02
+        bit += 16
+    if mask & 0b0010:
+        biases_m["L2_CA"] = _bits(body, bit, 16, signed=True) * 0.02
+        bit += 16
+    if mask & 0b0001:
+        biases_m["L2_P"] = _bits(body, bit, 16, signed=True) * 0.02
+        bit += 16
+
+    return {
+        "msg_id": 1230,
+        "station_id": sta_id,
+        "bias_indicator": bias_indicator,
+        "signal_mask": mask,
+        "biases_m": biases_m,
     }
 
 
