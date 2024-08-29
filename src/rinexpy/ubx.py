@@ -89,6 +89,8 @@ def decode_message(msg_class: int, msg_id: int, payload: bytes) -> dict[str, Any
     """
     decoders = {
         (0x01, 0x07): _decode_nav_pvt,
+        (0x01, 0x22): _decode_nav_clock,
+        (0x01, 0x04): _decode_nav_dop,
         (0x01, 0x35): _decode_nav_sat,
         (0x02, 0x15): _decode_rxm_rawx,
         (0x02, 0x13): _decode_rxm_sfrbx,
@@ -244,6 +246,50 @@ def _decode_rxm_sfrbx(p: bytes) -> dict[str, Any]:
         "channel": chn,
         "version": version,
         "subframe_words": words,
+    }
+
+
+def _decode_nav_clock(p: bytes) -> dict[str, Any]:
+    """NAV-CLOCK: 20-byte receiver clock state.
+
+    Spec offsets are from u-blox M8 receiver protocol section 32.17.7.
+    Reports the receiver's current clock bias and drift estimates plus
+    their accuracy.
+    """
+    if len(p) < 20:
+        return {"truncated": True}
+    itow, clk_bias_ns, clk_drift_ns_per_s, t_acc_ns, f_acc_ps_per_s = struct.unpack_from(
+        "<I i i I I", p
+    )
+    return {
+        "itow": itow,
+        "clock_bias_s": clk_bias_ns * 1e-9,
+        "clock_drift_s_per_s": clk_drift_ns_per_s * 1e-9,
+        "time_accuracy_s": t_acc_ns * 1e-9,
+        "frequency_accuracy_s_per_s": f_acc_ps_per_s * 1e-12,
+    }
+
+
+def _decode_nav_dop(p: bytes) -> dict[str, Any]:
+    """NAV-DOP: 18-byte dilution-of-precision values.
+
+    Spec offsets are from u-blox M8 protocol section 32.17.10. All DOPs are
+    transmitted as uint16 in units of 0.01 (so 100 -> DOP of 1.00).
+    """
+    if len(p) < 18:
+        return {"truncated": True}
+    itow, gdop, pdop, tdop, vdop, hdop, ndop, edop = struct.unpack_from(
+        "<I H H H H H H H", p
+    )
+    return {
+        "itow": itow,
+        "GDOP": gdop * 0.01,
+        "PDOP": pdop * 0.01,
+        "TDOP": tdop * 0.01,
+        "VDOP": vdop * 0.01,
+        "HDOP": hdop * 0.01,
+        "NDOP": ndop * 0.01,
+        "EDOP": edop * 0.01,
     }
 
 
