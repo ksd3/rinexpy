@@ -65,44 +65,28 @@ def load_clk(fn: FileLike) -> xr.Dataset:
 
             if len(line) < 40:
                 continue
-            rec_type = line[:2]
-            name = line[3:13].strip()
+            # Whitespace-tokenized parsing: IGS final clocks use a more
+            # compact column layout than the RINEX CLOCK spec example, and
+            # different ACs vary slightly. Splitting on whitespace handles
+            # every flavor seen in practice.
+            parts = line.split()
+            if len(parts) < 10:
+                continue
+            rec_type, name = parts[0], parts[1]
             try:
-                y = int(line[8:13])  # spec puts date in cols 8-37
-            except ValueError:
-                # Some files use a longer name column; fall back to split.
-                parts = line.split()
-                if len(parts) < 9:
-                    continue
-                rec_type, name = parts[0], parts[1]
-                try:
-                    t = datetime(
-                        int(parts[2]),
-                        int(parts[3]),
-                        int(parts[4]),
-                        int(parts[5]),
-                        int(parts[6]),
-                        int(float(parts[7])),
-                    )
-                    bias = fortran_float(parts[9])
-                except (ValueError, IndexError) as e:
-                    log.debug("skip clk line %r: %s", line[:80], e)
-                    continue
-            else:
-                try:
-                    t = datetime(
-                        y,
-                        int(line[14:16]),
-                        int(line[17:19]),
-                        int(line[20:22]),
-                        int(line[23:25]),
-                        int(float(line[26:34])),
-                    )
-                    # N value count at col 34-37 (we don't actually need it).
-                    bias = fortran_float(line[40:59])
-                except ValueError as e:
-                    log.debug("skip clk line %r: %s", line[:80], e)
-                    continue
+                t = datetime(
+                    int(parts[2]),
+                    int(parts[3]),
+                    int(parts[4]),
+                    int(parts[5]),
+                    int(parts[6]),
+                    int(float(parts[7])),
+                )
+                # parts[8] is the N value count, not used here.
+                bias = fortran_float(parts[9])
+            except (ValueError, IndexError) as e:
+                log.debug("skip clk line %r: %s", line[:80], e)
+                continue
 
             if rec_type == "AS":
                 sv_records.setdefault(name, []).append((t, bias))
