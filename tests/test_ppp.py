@@ -8,6 +8,7 @@ from pytest import approx
 
 from rinexpy.geodesy import lla_to_ecef
 from rinexpy.positioning import (
+    apply_light_time_and_earth_rotation,
     iono_free_pseudorange,
     ppp_solve_code_only,
     spp_solve,
@@ -143,3 +144,59 @@ def test_ppp_rejects_bad_sv_shape():
     sat_clock = np.zeros(4)
     with pytest.raises(ValueError, match="shape"):
         ppp_solve_code_only(pr, sv, sat_clock)
+
+
+def test_light_time_correction_on_synthetic_sp3():
+    """A stationary satellite (zero velocity in our synthetic SP3) sits at
+    the same position whether or not we apply the light-time correction;
+    we just verify the helper runs and returns the right shape."""
+    import xarray as xr
+
+    times = np.array(
+        ["2020-01-01T00:00:00", "2020-01-01T00:15:00", "2020-01-01T00:30:00"],
+        dtype="datetime64[ns]",
+    )
+    # One SV, sitting at a fixed location in km. Make all three epochs the
+    # same so Lagrange interpolation returns that fixed location for any
+    # query inside the window.
+    fixed_km = np.array([20000.0, 0.0, 15000.0])
+    pos = np.broadcast_to(fixed_km, (3, 1, 3)).copy()
+    sp3 = xr.Dataset(
+        {"position": (("time", "sv", "ECEF"), pos)},
+        coords={"time": times, "sv": ["G99"], "ECEF": ["x", "y", "z"]},
+    )
+    rx = np.array([0.0, 0.0, 0.0])
+    pos_m = apply_light_time_and_earth_rotation(
+        sp3, times[1], rx, "G99"
+    )
+    assert pos_m.shape == (3,)
+    # Stationary SV in inertial frame: after the iteration, the ECEF
+    # position has rotated by Omega * light_time. The magnitude is
+    # preserved (rotation is rigid). We check that.
+    truth_m = fixed_km * 1000.0
+    assert np.linalg.norm(pos_m) == approx(np.linalg.norm(truth_m), rel=1e-9)
+
+
+def test_light_time_iteration_converges():
+    """The fixed-point iteration converges to a stable position in 2-3 steps."""
+    import xarray as xr
+
+    times = np.array(
+        ["2020-01-01T00:00:00", "2020-01-01T00:15:00", "2020-01-01T00:30:00"],
+        dtype="datetime64[ns]",
+    )
+    fixed_km = np.array([20000.0, 5000.0, 15000.0])
+    pos = np.broadcast_to(fixed_km, (3, 1, 3)).copy()
+    sp3 = xr.Dataset(
+        {"position": (("time", "sv", "ECEF"), pos)},
+        coords={"time": times, "sv": ["G99"], "ECEF": ["x", "y", "z"]},
+    )
+    rx = np.array([1e6, 2e6, 5e6])
+    # max_iter=1 vs max_iter=3 should converge to the same answer.
+    pos_one = apply_light_time_and_earth_rotation(
+        sp3, times[1], rx, "G99", max_iter=1
+    )
+    pos_three = apply_light_time_and_earth_rotation(
+        sp3, times[1], rx, "G99", max_iter=3
+    )
+    assert np.allclose(pos_one, pos_three, atol=1e-6)

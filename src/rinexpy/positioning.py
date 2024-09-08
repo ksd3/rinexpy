@@ -395,6 +395,88 @@ def apply_tgd_correction(
     return out
 
 
+_OMEGA_EARTH = 7.2921151467e-5  # WGS-84 Earth rotation rate, rad/s
+
+
+def apply_light_time_and_earth_rotation(
+    sp3,
+    receive_time,
+    rx_ecef: tuple[float, float, float] | np.ndarray,
+    sv_label: str,
+    *,
+    order: int = 10,
+    max_iter: int = 3,
+) -> np.ndarray:
+    """Interpolate an SV's ECEF position at signal-emission time.
+
+    A GPS signal takes ~70 ms to travel from satellite to receiver. During
+    that interval the satellite moves ~300 m along its orbit and the Earth
+    rotates ~5 m at the equator. For sub-meter positioning, both effects
+    are corrected by an iterative fixed-point loop:
+
+    1. Compute the range from ``rx_ecef`` to the satellite at receive time.
+    2. Light time = range / c.
+    3. Interpolate the SP3 to ``receive_time - light_time`` (emission time).
+    4. Rotate the resulting position around the Earth's z-axis by
+       ``-Omega_e * light_time`` so the ECEF frame at emission lines up
+       with the ECEF frame at receive.
+    5. Repeat until the light-time changes by less than a microsecond,
+       which happens within 2-3 iterations.
+
+    Parameters
+    ----------
+    sp3:
+        SP3 dataset from :func:`rinexpy.load_sp3`. Position units must be
+        km (the standard SP3 convention).
+    receive_time:
+        ``numpy.datetime64`` epoch when the signal arrived at the receiver.
+    rx_ecef:
+        Receiver ECEF position in meters. A reasonable initial guess is
+        good enough; the iteration converges from any non-zero start.
+    sv_label:
+        Satellite identifier (e.g. ``"G07"``).
+    order:
+        Lagrange interpolation order for the SP3 lookup. Default 10.
+    max_iter:
+        Cap on the fixed-point iteration. Default 3 is plenty.
+
+    Returns
+    -------
+    ndarray
+        ``(3,)`` corrected satellite ECEF position in meters.
+    """
+    from .interp import interpolate_sp3
+
+    rx = np.asarray(rx_ecef, dtype=float)
+    # Initial position: SP3 at receive time. interpolate_sp3 returns position
+    # in the same units as the source SP3 (km).
+    pos_km = interpolate_sp3(sp3, np.array([receive_time]), order=order)
+    pos = pos_km.position.sel(sv=sv_label).isel(time=0).values * 1000.0
+    prev_dt = 0.0
+    for _ in range(max_iter):
+        rng = float(np.linalg.norm(pos - rx))
+        dt = rng / _C
+        if abs(dt - prev_dt) < 1e-9:
+            break
+        emission = receive_time - np.timedelta64(int(dt * 1e9), "ns")
+        interp = interpolate_sp3(sp3, np.array([emission]), order=order)
+        pos = interp.position.sel(sv=sv_label).isel(time=0).values * 1000.0
+        # Earth-rotation correction: rotate the satellite ECEF backwards by
+        # Omega_e * dt so the receive-time ECEF frame matches.
+        angle = _OMEGA_EARTH * dt
+        cos_a = np.cos(angle)
+        sin_a = np.sin(angle)
+        pos = np.array(
+            [
+                cos_a * pos[0] + sin_a * pos[1],
+                -sin_a * pos[0] + cos_a * pos[1],
+                pos[2],
+            ]
+        )
+        prev_dt = dt
+    return pos
+
+
 def iono_free_pseudorange(
     p1_m: np.ndarray,
     p2_m: np.ndarray,
@@ -546,6 +628,7 @@ def ppp_solve_code_only(
 
 __all__ = [
     "apply_klobuchar_correction",
+    "apply_light_time_and_earth_rotation",
     "apply_tgd_correction",
     "iono_free_pseudorange",
     "ppp_solve_code_only",

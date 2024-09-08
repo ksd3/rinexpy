@@ -20,7 +20,16 @@ import numpy as np
 import pytest
 
 import rinexpy as rp
-from rinexpy.positioning import iono_free_pseudorange, ppp_solve_code_only
+from rinexpy.geodesy import (
+    azimuth_elevation,
+    ecef_to_lla,
+    saastamoinen,
+)
+from rinexpy.positioning import (
+    apply_light_time_and_earth_rotation,
+    iono_free_pseudorange,
+    ppp_solve_code_only,
+)
 
 _C = 299_792_458.0
 _F_L1 = 1575.42e6
@@ -133,18 +142,18 @@ def test_ppp_recovers_abmf_marker_xyz_to_within_a_few_meters(igs_products):
         p2_kept.append(v2)
     assert len(kept) >= 4, f"need >= 4 GPS SVs with C1C+C2W; got {len(kept)}"
 
-    # Satellite positions at the receive epoch from SP3 (km -> m). Strictly
-    # we want them at signal-emission time, ~70 ms earlier; the position
-    # bias from skipping the light-time correction is < 300 m, which gets
-    # absorbed by the receiver clock and the residual. For a marker-XYZ
-    # consistency check at the few-meter band, this is fine.
-    pos_at_epoch = sp3.position.sel(time=epoch)
+    # Satellite positions at signal-emission time, with the light-time
+    # fixed-point loop and the Earth-rotation correction during light
+    # time. Both are mandatory for sub-meter PPP.
     sv_ecef = np.array(
-        [pos_at_epoch.sel(sv=sv).values * 1000.0 for sv in kept]
+        [
+            apply_light_time_and_earth_rotation(sp3, epoch, truth_rx, sv)
+            for sv in kept
+        ]
     )
 
-    # Precise satellite clocks at the receive epoch from CLK (already in s).
-    # The variable name in load_clk's output is 'bias', not 'clock'.
+    # Precise satellite clocks at the receive epoch from CLK. The variable
+    # name in load_clk's output is 'bias', not 'clock'.
     clk_at_epoch = clk["bias"].sel(time=epoch)
     sat_clock_s = np.array(
         [float(clk_at_epoch.sel(sv=sv).values) for sv in kept]
@@ -161,24 +170,30 @@ def test_ppp_recovers_abmf_marker_xyz_to_within_a_few_meters(igs_products):
     p1 = np.asarray(p1_kept, float)[keep_mask]
     p2 = np.asarray(p2_kept, float)[keep_mask]
 
+    # Per-SV slant tropospheric delay via Saastamoinen with the ICAO
+    # standard atmosphere. Elevation is computed from the marker XYZ
+    # since it's a fixed station; the small bias from using truth_rx
+    # rather than a solved-for position is below the noise here.
+    lat, _, alt = ecef_to_lla(*truth_rx)
+    _, el_deg = azimuth_elevation(truth_rx, sv_ecef)
+    tropo_m = np.array([saastamoinen(float(e), alt) for e in el_deg])
+
     pr_if = iono_free_pseudorange(p1, p2)
     sol = ppp_solve_code_only(
         pr_if,
         sv_ecef,
         sat_clock_s,
-        initial_guess=tuple(truth_rx),  # warm start from the marker
+        tropospheric_delay_m=tropo_m,
+        initial_guess=tuple(truth_rx),
     )
 
     err = np.linalg.norm(np.array(sol["position"]) - truth_rx)
-    # Without troposphere correction, light-time iteration, or DCB
-    # application, the recovered position will be tens-of-meters off
-    # the marker (typically 30-150 m at low-elevation sites). The
-    # threshold below verifies the pipeline is wired correctly and is
-    # not catching any large unit-error or sign-flip regression. To
-    # get sub-meter accuracy we would add a tropo model (Saastamoinen
-    # or VMF1), a light-time iteration, and DCB application; each of
-    # those is roadmap work, not a fix to this test.
-    assert err < 200.0, (
+    # With light-time correction, Earth-rotation correction, and
+    # Saastamoinen troposphere applied, the unmodelled residuals are
+    # dominated by code multipath, broadcast-vs-IGS clock differences
+    # for the few-second offset between OBS time and clock time, and
+    # DCBs. We expect a few meters on a clean station.
+    assert err < 10.0, (
         f"PPP recovered {sol['position']} vs marker {tuple(truth_rx)}; "
         f"err = {err:.2f} m"
     )
