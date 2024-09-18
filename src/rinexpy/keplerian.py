@@ -79,7 +79,17 @@ def keplerian2ecef(
     tk = tk.astype(float)
 
     Mk = sv["M0"].values + n * tk
-    Ek = Mk + e * np.sin(Mk)
+    # Solve Kepler's equation M = E - e*sin(E) for E by Newton-Raphson.
+    # Starting from E_0 = M and iterating
+    #   E_{k+1} = E_k - (E_k - e*sin(E_k) - M) / (1 - e*cos(E_k))
+    # converges to ~1e-12 within ~5 iterations for e < 0.05 (all GPS,
+    # Galileo, and BeiDou MEO satellites). One iteration like the previous
+    # code did was wrong: position error scales as a*e^2, which is
+    # ~1.3 km for typical GPS at e=0.01.
+    Ek = Mk.copy()
+    for _ in range(8):
+        f = Ek - e * np.sin(Ek) - Mk
+        Ek = Ek - f / (1.0 - e * np.cos(Ek))
     nu = np.arctan2(np.sqrt(1 - e**2) * np.sin(Ek), np.cos(Ek) - e)
 
     phi = nu + sv["omega"].values
