@@ -477,6 +477,37 @@ def apply_light_time_and_earth_rotation(
     return pos
 
 
+def iono_free_phase(
+    l1_m: np.ndarray,
+    l2_m: np.ndarray,
+    *,
+    f1: float = _GPS_F1,
+    f2: float = _GPS_F2,
+) -> np.ndarray:
+    """Iono-free carrier-phase combination, in meters.
+
+    Same formula as :func:`iono_free_pseudorange` but applied to carrier
+    phase (passed in meters, i.e. cycles * wavelength):
+    ``L_IF = (alpha * L1 - L2) / (alpha - 1)``, ``alpha = (f1/f2)**2``.
+
+    Parameters
+    ----------
+    l1_m, l2_m:
+        ``(n,)`` carrier phase on the two frequencies, in meters.
+    f1, f2:
+        Frequencies in Hz. Defaults are GPS L1, L2.
+
+    Returns
+    -------
+    ndarray
+        Iono-free phase in meters.
+    """
+    alpha = (f1 / f2) ** 2
+    l1 = np.asarray(l1_m, dtype=float)
+    l2 = np.asarray(l2_m, dtype=float)
+    return (alpha * l1 - l2) / (alpha - 1.0)
+
+
 def iono_free_pseudorange(
     p1_m: np.ndarray,
     p2_m: np.ndarray,
@@ -626,12 +657,197 @@ def ppp_solve_code_only(
     raise RuntimeError(f"PPP did not converge in {max_iter} iterations")
 
 
+def ppp_solve_static_batch(
+    pr_if: np.ndarray,
+    phase_if: np.ndarray,
+    sv_ecef: np.ndarray,
+    sat_clock_s: np.ndarray,
+    *,
+    tropo: np.ndarray | None = None,
+    initial_position: tuple[float, float, float],
+    sigma_code: float = 1.0,
+    sigma_phase: float = 0.005,
+    max_iter: int = 10,
+    tol: float = 1e-3,
+) -> dict:
+    """Static-receiver float-ambiguity carrier-phase PPP across many epochs.
+
+    Solves a single weighted LSQ for
+
+        x = [dx, dy, dz, dt_1, ..., dt_n_epoch, dN_1, ..., dN_n_sv]
+
+    where ``(dx, dy, dz)`` is the position offset from ``initial_position``,
+    ``dt_k`` is the receiver clock at epoch ``k`` (in seconds), and ``dN_i``
+    is the float iono-free phase ambiguity for SV ``i`` (in meters,
+    constant across all epochs).
+
+    Code observations: ``PR_IF - geom = -u·dx + c·dt_k + noise(sigma_code)``
+    Phase observations: ``L_IF  - geom = -u·dx + c·dt_k + dN_i + noise(sigma_phase)``
+
+    Weights are ``1/sigma_code^2`` for code and ``1/sigma_phase^2`` for
+    phase, so the phase observations carry the position-determining
+    weight (~200,000x the code) while the code observations pin the
+    ambiguities to roughly meter precision (per-SV).
+
+    Parameters
+    ----------
+    pr_if:
+        ``(n_epoch, n_sv)`` iono-free code pseudoranges in meters. NaN
+        for missing observations.
+    phase_if:
+        ``(n_epoch, n_sv)`` iono-free phase observations in meters.
+    sv_ecef:
+        ``(n_epoch, n_sv, 3)`` precise satellite positions at signal
+        emission time (use :func:`apply_light_time_and_earth_rotation`
+        per epoch beforehand).
+    sat_clock_s:
+        ``(n_epoch, n_sv)`` precise satellite clock offsets in seconds.
+    tropo:
+        Optional ``(n_epoch, n_sv)`` slant tropospheric delay in meters.
+    initial_position:
+        ECEF receiver position guess in meters. Pull from the OBS marker
+        XYZ or a code-only PPP first pass.
+    sigma_code, sigma_phase:
+        1-sigma observation noise. Defaults 1.0 m for code, 5 mm for
+        phase.
+    max_iter, tol:
+        LSQ outer-iteration cap and convergence threshold on the
+        position update norm, in meters.
+
+    Returns
+    -------
+    dict
+        ``position`` (tuple ECEF in m), ``clock_per_epoch``
+        ``(n_epoch,)`` in seconds, ``ambiguities_m`` ``(n_sv,)``,
+        ``n_iter`` (int), ``code_residuals`` and ``phase_residuals``
+        flattened arrays.
+
+    Raises
+    ------
+    ValueError
+        If shapes don't match, or fewer than 6 valid SV observations
+        exist (a static-PPP solve with float ambiguities needs DOF >= 2).
+    """
+    pr = np.asarray(pr_if, dtype=float)
+    ph = np.asarray(phase_if, dtype=float)
+    sv = np.asarray(sv_ecef, dtype=float)
+    dt_sv = np.asarray(sat_clock_s, dtype=float)
+    n_epoch, n_sv = pr.shape
+    if ph.shape != (n_epoch, n_sv) or sv.shape != (n_epoch, n_sv, 3):
+        raise ValueError(
+            "pr_if/phase_if must be (n_epoch, n_sv) and sv_ecef must be "
+            f"(n_epoch, n_sv, 3); got {pr.shape}, {ph.shape}, {sv.shape}"
+        )
+    if dt_sv.shape != (n_epoch, n_sv):
+        raise ValueError(
+            f"sat_clock_s must be (n_epoch, n_sv); got {dt_sv.shape}"
+        )
+    if tropo is not None:
+        tropo = np.asarray(tropo, dtype=float)
+        if tropo.shape != (n_epoch, n_sv):
+            raise ValueError("tropo must match pr_if shape")
+
+    pr_corr = pr + _C * dt_sv
+    ph_corr = ph + _C * dt_sv
+    if tropo is not None:
+        pr_corr = pr_corr - tropo
+        ph_corr = ph_corr - tropo
+
+    # Index layout in the state vector:
+    #   [0 .. 2]                 -> position offset dx, dy, dz
+    #   [3 .. 3 + n_epoch - 1]   -> per-epoch clock dt_k (in seconds)
+    #   [3+n_epoch .. end]       -> per-SV ambiguity dN_i (in meters)
+    n_state = 3 + n_epoch + n_sv
+    rx = np.asarray(initial_position, dtype=float).copy()
+    clk = np.zeros(n_epoch)
+    amb = np.zeros(n_sv)
+    w_code = 1.0 / (sigma_code ** 2)
+    w_phase = 1.0 / (sigma_phase ** 2)
+
+    code_resid = phase_resid = np.array([])
+    for it in range(max_iter):
+        rows = []
+        rhs = []
+        weights = []
+        # Pre-init the ambiguity estimate from the code-vs-phase difference at
+        # the first epoch where both are finite. This isn't strictly required
+        # for convergence but speeds it up.
+        if it == 0:
+            for j in range(n_sv):
+                for k in range(n_epoch):
+                    if np.isfinite(pr_corr[k, j]) and np.isfinite(ph_corr[k, j]):
+                        amb[j] = pr_corr[k, j] - ph_corr[k, j]
+                        break
+        for k in range(n_epoch):
+            for j in range(n_sv):
+                diff = sv[k, j] - rx
+                rho = float(np.linalg.norm(diff))
+                if rho == 0.0:
+                    continue
+                u = -diff / rho
+                if np.isfinite(pr_corr[k, j]):
+                    row = np.zeros(n_state)
+                    row[:3] = u
+                    row[3 + k] = _C
+                    pred = rho + _C * clk[k]
+                    rows.append(row)
+                    rhs.append(pr_corr[k, j] - pred)
+                    weights.append(w_code)
+                if np.isfinite(ph_corr[k, j]):
+                    row = np.zeros(n_state)
+                    row[:3] = u
+                    row[3 + k] = _C
+                    row[3 + n_epoch + j] = 1.0
+                    pred = rho + _C * clk[k] + amb[j]
+                    rows.append(row)
+                    rhs.append(ph_corr[k, j] - pred)
+                    weights.append(w_phase)
+        if len(rows) < n_state:
+            raise ValueError(
+                f"PPP static-batch needs more observations than unknowns: "
+                f"have {len(rows)}, need at least {n_state}"
+            )
+        A = np.asarray(rows)
+        y = np.asarray(rhs)
+        w = np.asarray(weights)
+        # Weighted LSQ via sqrt(W) scaling.
+        sw = np.sqrt(w)
+        Aw = A * sw[:, None]
+        yw = y * sw
+        try:
+            update, *_ = np.linalg.lstsq(Aw, yw, rcond=None)
+        except np.linalg.LinAlgError as e:
+            raise RuntimeError(f"PPP-static normal equations singular: {e}") from e
+        rx = rx + update[:3]
+        clk = clk + update[3:3 + n_epoch]
+        amb = amb + update[3 + n_epoch:]
+        code_resid = y[w == w_code]
+        phase_resid = y[w == w_phase]
+        if np.linalg.norm(update[:3]) < tol:
+            break
+    else:
+        raise RuntimeError(
+            f"PPP-static did not converge in {max_iter} iterations"
+        )
+
+    return {
+        "position": (float(rx[0]), float(rx[1]), float(rx[2])),
+        "clock_per_epoch": clk,
+        "ambiguities_m": amb,
+        "n_iter": it + 1,
+        "code_residuals": code_resid,
+        "phase_residuals": phase_resid,
+    }
+
+
 __all__ = [
     "apply_klobuchar_correction",
     "apply_light_time_and_earth_rotation",
     "apply_tgd_correction",
+    "iono_free_phase",
     "iono_free_pseudorange",
     "ppp_solve_code_only",
+    "ppp_solve_static_batch",
     "spp_solve",
     "spp_solve_raim",
     "tgd_from_nav",
