@@ -46,6 +46,7 @@ from ._time import to_datetime
 from .antex import apply_antex_pcv, find_antenna, load_antex
 from .api import batch_convert, gettime, load, rinexnav, rinexobs
 from .clk import interpolate_clk, load_clk
+from .eop import interp_eop, load_eop
 from .gpt2w import gpt2w, load_gpt2w_grid
 from .headers import (
     navheader2,
@@ -77,6 +78,7 @@ __all__ = [
     "gettime",
     "globber",
     "gpt2w",
+    "interp_eop",
     "interp_tec",
     "interpolate_clk",
     "interpolate_sp3",
@@ -87,6 +89,7 @@ __all__ = [
     "load",
     "load_antex",
     "load_clk",
+    "load_eop",
     "load_gpt2w_grid",
     "load_ionex",
     "load_sp3",
