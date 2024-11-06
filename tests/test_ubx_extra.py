@@ -60,6 +60,67 @@ def test_nav_dop_truncated_payload():
     assert out.get("truncated") is True
 
 
+def test_nav_velned_round_trips_velocities():
+    """Velocity components and accuracy fields decode in m/s and degrees."""
+    payload = struct.pack(
+        "<I i i i I I i I I",
+        500_000,    # iTOW
+        100,        # velN: 1.00 m/s
+        -200,       # velE: -2.00 m/s
+        50,         # velD: 0.50 m/s
+        225,        # speed_3d: 2.25 m/s
+        220,        # speed_2d: 2.20 m/s
+        12345678,   # heading: 123.45678 deg
+        10,         # sAcc: 0.10 m/s
+        20000,      # cAcc: 0.20000 deg
+    )
+    out = decode_message(0x01, 0x12, payload)
+    assert out["itow"] == 500_000
+    assert out["velN_m_s"] == approx(1.00)
+    assert out["velE_m_s"] == approx(-2.00)
+    assert out["velD_m_s"] == approx(0.50)
+    assert out["speed_3d_m_s"] == approx(2.25)
+    assert out["speed_2d_m_s"] == approx(2.20)
+    assert out["heading_deg"] == approx(123.45678, abs=1e-5)
+    assert out["speed_accuracy_m_s"] == approx(0.10)
+    assert out["heading_accuracy_deg"] == approx(0.20, abs=1e-5)
+
+
+def test_nav_velned_truncated_payload():
+    out = decode_message(0x01, 0x12, b"\x00" * 10)
+    assert out.get("truncated") is True
+
+
+def test_nav_timeutc_decodes_utc_components():
+    """NAV-TIMEUTC reads year/month/day/h/m/s and the valid-flag bits."""
+    payload = struct.pack(
+        "<I I i H B B B B B B",
+        100_000_000,    # iTOW
+        50,             # tAcc 50 ns
+        -200,           # nano: -200 ns offset
+        2024,
+        6,              # month
+        21,             # day
+        14, 30, 45,
+        0x07,           # valid: TOW + WKN + UTC bits set
+    )
+    out = decode_message(0x01, 0x21, payload)
+    assert out["year"] == 2024
+    assert out["month"] == 6
+    assert out["day"] == 21
+    assert out["hour"] == 14 and out["minute"] == 30 and out["second"] == 45
+    assert out["time_accuracy_ns"] == 50
+    assert out["nano_offset_ns"] == -200
+    assert out["valid_tow"] is True
+    assert out["valid_wkn"] is True
+    assert out["valid_utc"] is True
+
+
+def test_nav_timeutc_truncated_payload():
+    out = decode_message(0x01, 0x21, b"\x00" * 5)
+    assert out.get("truncated") is True
+
+
 def test_unknown_class_id_falls_back_to_raw():
     """Unknown msg_class / msg_id combinations still produce the base envelope."""
     out = decode_message(0xFF, 0xFF, b"\x01\x02\x03")

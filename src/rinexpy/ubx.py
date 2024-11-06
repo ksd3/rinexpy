@@ -91,6 +91,8 @@ def decode_message(msg_class: int, msg_id: int, payload: bytes) -> dict[str, Any
         (0x01, 0x07): _decode_nav_pvt,
         (0x01, 0x22): _decode_nav_clock,
         (0x01, 0x04): _decode_nav_dop,
+        (0x01, 0x12): _decode_nav_velned,
+        (0x01, 0x21): _decode_nav_timeutc,
         (0x01, 0x35): _decode_nav_sat,
         (0x02, 0x15): _decode_rxm_rawx,
         (0x02, 0x13): _decode_rxm_sfrbx,
@@ -246,6 +248,57 @@ def _decode_rxm_sfrbx(p: bytes) -> dict[str, Any]:
         "channel": chn,
         "version": version,
         "subframe_words": words,
+    }
+
+
+def _decode_nav_velned(p: bytes) -> dict[str, Any]:
+    """NAV-VELNED: 36-byte velocity in North/East/Down frame.
+
+    Spec offsets from u-blox M8 protocol section 32.17.21. Velocities
+    are stored as int32 cm/s; this returns them in m/s.
+    """
+    if len(p) < 36:
+        return {"truncated": True}
+    itow, velN, velE, velD, speed, gSpeed, heading, sAcc, cAcc = struct.unpack_from(
+        "<I i i i I I i I I", p
+    )
+    return {
+        "itow": itow,
+        "velN_m_s": velN * 1e-2,
+        "velE_m_s": velE * 1e-2,
+        "velD_m_s": velD * 1e-2,
+        "speed_3d_m_s": speed * 1e-2,
+        "speed_2d_m_s": gSpeed * 1e-2,
+        "heading_deg": heading * 1e-5,
+        "speed_accuracy_m_s": sAcc * 1e-2,
+        "heading_accuracy_deg": cAcc * 1e-5,
+    }
+
+
+def _decode_nav_timeutc(p: bytes) -> dict[str, Any]:
+    """NAV-TIMEUTC: 20-byte UTC time + accuracy.
+
+    Spec offsets from u-blox M8 protocol section 32.17.27.
+    """
+    if len(p) < 20:
+        return {"truncated": True}
+    itow, tAcc, nano, year, month, day, hour, minute, second, valid = (
+        struct.unpack_from("<I I i H B B B B B B", p)
+    )
+    return {
+        "itow": itow,
+        "time_accuracy_ns": tAcc,
+        "nano_offset_ns": nano,
+        "year": year,
+        "month": month,
+        "day": day,
+        "hour": hour,
+        "minute": minute,
+        "second": second,
+        "valid_flags": valid,
+        "valid_tow": bool(valid & 0x01),
+        "valid_wkn": bool(valid & 0x02),
+        "valid_utc": bool(valid & 0x04),
     }
 
 
