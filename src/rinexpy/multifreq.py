@@ -184,6 +184,128 @@ def split_wl_into_l1_l2(n_wl: np.ndarray, n_nl: np.ndarray) -> tuple[np.ndarray,
     return n1, n2
 
 
+def fix_iono_free_ambiguity(
+    p1_m: np.ndarray,
+    p2_m: np.ndarray,
+    phi1_cycles: np.ndarray,
+    phi2_cycles: np.ndarray,
+    float_iono_free_ambig_m: float,
+    *,
+    f1: float = F1,
+    f2: float = F2,
+    sigma_wl_cycles: float = 0.25,
+    sigma_nl_cycles: float = 0.15,
+) -> dict:
+    """Resolve integer L1, L2 ambiguities given a PPP float iono-free ambiguity.
+
+    Implements the standard PPP Wide-Lane / Narrow-Lane decomposition
+    (Ge et al. 2008, Geng et al. 2010):
+
+    1. Average the Melbourne-Wuebbena combination across all valid
+       epochs in the arc to get a float ``N_WL = N1 - N2`` estimate.
+       Round to the nearest integer; reject the fix if the fractional
+       residual exceeds ``sigma_wl_cycles``.
+    2. With ``N_WL`` held at its integer, derive the float ``N_NL =
+       N1 + N2`` from the PPP float iono-free phase ambiguity in meters:
+
+           B_IF = (lambda_WL/2) * N_WL + (lambda_NL/2) * N_NL
+
+       so
+
+           N_NL_float = 2 * (B_IF - (lambda_WL/2) * N_WL) / lambda_NL
+
+    3. Round ``N_NL_float`` to the nearest integer; reject the fix if
+       the fractional residual exceeds ``sigma_nl_cycles`` OR if
+       ``N_NL`` and ``N_WL`` have different parities (the parity
+       constraint enforces ``N1`` and ``N2`` being integer).
+    4. Reconstruct ``N1 = (N_WL + N_NL) / 2`` and ``N2 = (N_NL - N_WL) / 2``.
+
+    Parameters
+    ----------
+    p1_m, p2_m:
+        Per-epoch code pseudoranges on L1 and L2, in meters.
+    phi1_cycles, phi2_cycles:
+        Per-epoch carrier phase on L1 and L2, in cycles. Must match
+        ``p1_m`` / ``p2_m`` in length.
+    float_iono_free_ambig_m:
+        The PPP-derived float iono-free phase ambiguity, in meters,
+        for this satellite. Typically from
+        :func:`rinexpy.positioning.ppp_solve_static_batch`'s output.
+    f1, f2:
+        Carrier frequencies in Hz. Defaults are GPS L1, L2.
+    sigma_wl_cycles, sigma_nl_cycles:
+        Maximum fractional-cycle residual from the rounded integer.
+        Defaults: 0.25 cycles for WL (~22 cm at lambda_WL = 86 cm),
+        0.15 cycles for NL (~16 mm at lambda_NL = 10.7 cm).
+
+    Returns
+    -------
+    dict
+        ``{"n_wl": int | None, "n_nl": int | None, "n1": int | None,
+        "n2": int | None, "wl_fixed": bool, "nl_fixed": bool,
+        "parity_ok": bool, "fixed_iono_free_ambig_m": float | None,
+        "float_n_wl": float, "float_n_nl": float}``.
+        Integer fields are ``None`` if the fix isn't accepted; the
+        ``float_*`` fields are always populated for diagnostics.
+    """
+    wl_fix = resolve_wide_lane(
+        phi1_cycles, phi2_cycles, p1_m, p2_m, sigma_threshold=sigma_wl_cycles
+    )
+    # resolve_wide_lane operates per-element; for a single arc we average
+    # the per-epoch MW values via the existing fixed_mask. Use the
+    # median for robustness to outliers.
+    mw = melbourne_wubbena(phi1_cycles, phi2_cycles, p1_m, p2_m)
+    finite = np.isfinite(mw)
+    if not finite.any():
+        return {
+            "n_wl": None, "n_nl": None, "n1": None, "n2": None,
+            "wl_fixed": False, "nl_fixed": False, "parity_ok": False,
+            "fixed_iono_free_ambig_m": None,
+            "float_n_wl": float("nan"), "float_n_nl": float("nan"),
+        }
+    float_wl = float(np.median(mw[finite]) / LAMBDA_WL)
+    n_wl_int = int(round(float_wl))
+    wl_resid = abs(float_wl - n_wl_int)
+    wl_fixed = wl_resid < sigma_wl_cycles
+
+    lam_wl = _C / (f1 - f2)
+    lam_nl = _C / (f1 + f2)
+    float_nl = 2.0 * (float_iono_free_ambig_m - 0.5 * lam_wl * n_wl_int) / lam_nl
+    n_nl_int = int(round(float_nl))
+    nl_resid = abs(float_nl - n_nl_int)
+    nl_fixed = nl_resid < sigma_nl_cycles
+    parity_ok = (n_wl_int + n_nl_int) % 2 == 0
+
+    if wl_fixed and nl_fixed and parity_ok:
+        n1 = (n_wl_int + n_nl_int) // 2
+        n2 = (n_nl_int - n_wl_int) // 2
+        fixed_b_if = 0.5 * lam_wl * n_wl_int + 0.5 * lam_nl * n_nl_int
+        return {
+            "n_wl": n_wl_int,
+            "n_nl": n_nl_int,
+            "n1": n1,
+            "n2": n2,
+            "wl_fixed": True,
+            "nl_fixed": True,
+            "parity_ok": True,
+            "fixed_iono_free_ambig_m": float(fixed_b_if),
+            "float_n_wl": float_wl,
+            "float_n_nl": float_nl,
+        }
+    return {
+        "n_wl": n_wl_int if wl_fixed else None,
+        "n_nl": None,
+        "n1": None,
+        "n2": None,
+        "wl_fixed": wl_fixed,
+        "nl_fixed": nl_fixed,
+        "parity_ok": parity_ok,
+        "fixed_iono_free_ambig_m": None,
+        "float_n_wl": float_wl,
+        "float_n_nl": float_nl,
+    }
+
+
 def lambda_dual_freq(
     a_l1_float: np.ndarray,
     a_l2_float: np.ndarray,
@@ -275,6 +397,7 @@ __all__ = [
     "LAMBDA_L2",
     "LAMBDA_NL",
     "LAMBDA_WL",
+    "fix_iono_free_ambiguity",
     "lambda_dual_freq",
     "melbourne_wubbena",
     "narrow_lane_phase",
