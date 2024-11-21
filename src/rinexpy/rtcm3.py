@@ -117,6 +117,9 @@ def decode_message(msg_id: int, body: bytes) -> dict[str, Any]:
         1020: _decode_1020,
         1029: _decode_1029,
         1033: _decode_1033,
+        1042: _decode_1042,
+        1045: _decode_1045,
+        1046: _decode_1046,
         1230: _decode_1230,
     }
     if msg_id in decoders:
@@ -297,6 +300,167 @@ def _decode_1004(body: bytes) -> dict[str, Any]:
         "smoothing_interval": smooth_iv,
         "satellites": sats,
     }
+
+
+_PI = 3.1415926535898
+
+
+def _decode_1042(body: bytes) -> dict[str, Any]:
+    """BeiDou broadcast ephemeris (selected fields).
+
+    RTCM 10403.3 message type 1042. We extract the standard set most
+    downstream Keplerian-to-ECEF code needs (sv, week, AODE, Toc, Toe,
+    M_0, e, sqrt(A), C_rs / C_uc / C_us / etc.) plus the TGD pair.
+    """
+    bit = 12
+    sat = _bits(body, bit, 6); bit += 6
+    week = _bits(body, bit, 13); bit += 13
+    urai = _bits(body, bit, 4); bit += 4
+    idot = _bits(body, bit, 14, signed=True) * 2**-43 * _PI
+    bit += 14
+    aode = _bits(body, bit, 5); bit += 5
+    toc = _bits(body, bit, 17) * 8; bit += 17
+    a2 = _bits(body, bit, 11, signed=True) * 2**-66; bit += 11
+    a1 = _bits(body, bit, 22, signed=True) * 2**-50; bit += 22
+    a0 = _bits(body, bit, 24, signed=True) * 2**-33; bit += 24
+    aodc = _bits(body, bit, 5); bit += 5
+    crs = _bits(body, bit, 18, signed=True) * 2**-6; bit += 18
+    delta_n = _bits(body, bit, 16, signed=True) * 2**-43 * _PI; bit += 16
+    m0 = _bits(body, bit, 32, signed=True) * 2**-31 * _PI; bit += 32
+    cuc = _bits(body, bit, 18, signed=True) * 2**-31; bit += 18
+    e = _bits(body, bit, 32) * 2**-33; bit += 32
+    cus = _bits(body, bit, 18, signed=True) * 2**-31; bit += 18
+    sqrt_a = _bits(body, bit, 32) * 2**-19; bit += 32
+    toe = _bits(body, bit, 17) * 8; bit += 17
+    cic = _bits(body, bit, 18, signed=True) * 2**-31; bit += 18
+    omega0 = _bits(body, bit, 32, signed=True) * 2**-31 * _PI; bit += 32
+    cis = _bits(body, bit, 18, signed=True) * 2**-31; bit += 18
+    i0 = _bits(body, bit, 32, signed=True) * 2**-31 * _PI; bit += 32
+    crc = _bits(body, bit, 18, signed=True) * 2**-6; bit += 18
+    omega = _bits(body, bit, 32, signed=True) * 2**-31 * _PI; bit += 32
+    omega_dot = _bits(body, bit, 24, signed=True) * 2**-43 * _PI; bit += 24
+    tgd1 = _bits(body, bit, 10, signed=True) * 0.1e-9; bit += 10
+    tgd2 = _bits(body, bit, 10, signed=True) * 0.1e-9; bit += 10
+    sv_health = _bits(body, bit, 1); bit += 1
+
+    return {
+        "msg_id": 1042,
+        "sv": f"C{sat:02d}",
+        "week": week,
+        "URAI": urai,
+        "AODE": aode,
+        "AODC": aodc,
+        "t_oc_s": toc,
+        "t_oe_s": toe,
+        "a_f0_s": a0,
+        "a_f1_s_per_s": a1,
+        "a_f2_s_per_s2": a2,
+        "C_rs_m": crs,
+        "C_rc_m": crc,
+        "C_uc_rad": cuc,
+        "C_us_rad": cus,
+        "C_ic_rad": cic,
+        "C_is_rad": cis,
+        "delta_n_rad_s": delta_n,
+        "M_0_rad": m0,
+        "e": e,
+        "sqrt_A_root_m": sqrt_a,
+        "Omega_0_rad": omega0,
+        "i_0_rad": i0,
+        "omega_rad": omega,
+        "Omega_dot_rad_s": omega_dot,
+        "IDOT_rad_s": idot,
+        "TGD1_s": tgd1,
+        "TGD2_s": tgd2,
+        "SV_health": sv_health,
+    }
+
+
+def _decode_galileo_eph_common(body: bytes, msg_id: int, sv_letter: str) -> dict[str, Any]:
+    """Shared decoder for RTCM 1045 (Galileo F/NAV) and 1046 (Galileo I/NAV).
+
+    The two messages have almost identical layouts; the F/NAV variant
+    has BGD_E1E5a and an OSHS / OSDVS flag, while the I/NAV variant has
+    BGD_E1E5a, BGD_E1E5b, and the E5b / E1B data validity / signal
+    health bits.
+    """
+    bit = 12
+    sat = _bits(body, bit, 6); bit += 6
+    week = _bits(body, bit, 12); bit += 12
+    iodnav = _bits(body, bit, 10); bit += 10
+    sisa = _bits(body, bit, 8); bit += 8
+    idot = _bits(body, bit, 14, signed=True) * 2**-43 * _PI; bit += 14
+    toc = _bits(body, bit, 14) * 60; bit += 14
+    af2 = _bits(body, bit, 6, signed=True) * 2**-59; bit += 6
+    af1 = _bits(body, bit, 21, signed=True) * 2**-46; bit += 21
+    af0 = _bits(body, bit, 31, signed=True) * 2**-34; bit += 31
+    crs = _bits(body, bit, 16, signed=True) * 2**-5; bit += 16
+    delta_n = _bits(body, bit, 16, signed=True) * 2**-43 * _PI; bit += 16
+    m0 = _bits(body, bit, 32, signed=True) * 2**-31 * _PI; bit += 32
+    cuc = _bits(body, bit, 16, signed=True) * 2**-29; bit += 16
+    e = _bits(body, bit, 32) * 2**-33; bit += 32
+    cus = _bits(body, bit, 16, signed=True) * 2**-29; bit += 16
+    sqrt_a = _bits(body, bit, 32) * 2**-19; bit += 32
+    toe = _bits(body, bit, 14) * 60; bit += 14
+    cic = _bits(body, bit, 16, signed=True) * 2**-29; bit += 16
+    omega0 = _bits(body, bit, 32, signed=True) * 2**-31 * _PI; bit += 32
+    cis = _bits(body, bit, 16, signed=True) * 2**-29; bit += 16
+    i0 = _bits(body, bit, 32, signed=True) * 2**-31 * _PI; bit += 32
+    crc = _bits(body, bit, 16, signed=True) * 2**-5; bit += 16
+    omega = _bits(body, bit, 32, signed=True) * 2**-31 * _PI; bit += 32
+    omega_dot = _bits(body, bit, 24, signed=True) * 2**-43 * _PI; bit += 24
+    bgd_e1e5a = _bits(body, bit, 10, signed=True) * 2**-32; bit += 10
+
+    out: dict[str, Any] = {
+        "msg_id": msg_id,
+        "sv": f"{sv_letter}{sat:02d}",
+        "week": week,
+        "IODnav": iodnav,
+        "SISA": sisa,
+        "t_oc_s": toc,
+        "t_oe_s": toe,
+        "a_f0_s": af0,
+        "a_f1_s_per_s": af1,
+        "a_f2_s_per_s2": af2,
+        "C_rs_m": crs,
+        "C_rc_m": crc,
+        "C_uc_rad": cuc,
+        "C_us_rad": cus,
+        "C_ic_rad": cic,
+        "C_is_rad": cis,
+        "delta_n_rad_s": delta_n,
+        "M_0_rad": m0,
+        "e": e,
+        "sqrt_A_root_m": sqrt_a,
+        "Omega_0_rad": omega0,
+        "i_0_rad": i0,
+        "omega_rad": omega,
+        "Omega_dot_rad_s": omega_dot,
+        "IDOT_rad_s": idot,
+        "BGD_E1E5a_s": bgd_e1e5a,
+    }
+    if msg_id == 1046:
+        # I/NAV adds a second BGD plus the E5b/E1B health flags.
+        bgd_e1e5b = _bits(body, bit, 10, signed=True) * 2**-32; bit += 10
+        out["BGD_E1E5b_s"] = bgd_e1e5b
+        out["E5b_DVS"] = _bits(body, bit, 1); bit += 1
+        out["E5b_HS"] = _bits(body, bit, 2); bit += 2
+        out["E1B_DVS"] = _bits(body, bit, 1); bit += 1
+        out["E1B_HS"] = _bits(body, bit, 2); bit += 2
+    else:
+        out["OSHS"] = _bits(body, bit, 2); bit += 2
+        out["OSDVS"] = _bits(body, bit, 1); bit += 1
+    return out
+
+
+def _decode_1045(body: bytes) -> dict[str, Any]:
+    """Galileo F/NAV broadcast ephemeris (E5a-based)."""
+    return _decode_galileo_eph_common(body, 1045, "E")
+
+
+def _decode_1046(body: bytes) -> dict[str, Any]:
+    """Galileo I/NAV broadcast ephemeris (E1B + E5b)."""
+    return _decode_galileo_eph_common(body, 1046, "E")
 
 
 def _decode_1029(body: bytes) -> dict[str, Any]:
