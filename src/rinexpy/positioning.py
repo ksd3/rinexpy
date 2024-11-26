@@ -840,6 +840,257 @@ def ppp_solve_static_batch(
     }
 
 
+def ppp_solve_static_batch_with_ar(
+    pr_if: np.ndarray,
+    phase_if: np.ndarray,
+    sv_ecef: np.ndarray,
+    sat_clock_s: np.ndarray,
+    *,
+    p1_m: np.ndarray,
+    p2_m: np.ndarray,
+    phi1_cycles: np.ndarray,
+    phi2_cycles: np.ndarray,
+    tropo: np.ndarray | None = None,
+    initial_position: tuple[float, float, float],
+    sigma_code: float = 1.0,
+    sigma_phase: float = 0.005,
+    sigma_wl_cycles: float = 0.25,
+    sigma_nl_cycles: float = 0.15,
+    max_iter: int = 10,
+    tol: float = 1e-3,
+) -> dict:
+    """Closed-loop static PPP with integer ambiguity resolution.
+
+    Pipeline:
+
+    1. Float solve via :func:`ppp_solve_static_batch` using the iono-free
+       code + phase observations.
+    2. For each SV, attempt
+       :func:`rinexpy.multifreq.fix_iono_free_ambiguity` on the raw L1/L2
+       code + phase observations using the float iono-free ambiguity
+       from step 1.
+    3. If any SVs got integer fixes, re-run the batch LSQ with those
+       ambiguities held at their fixed values via tight pseudo-
+       observation rows (sigma 1 mm). Ambiguities that didn't fix stay
+       as float unknowns.
+
+    Returns the float solution AND the AR-improved solution alongside
+    a per-SV fixed-mask, so callers can compare and decide which to use.
+
+    Parameters
+    ----------
+    pr_if, phase_if, sv_ecef, sat_clock_s, tropo, initial_position,
+    sigma_code, sigma_phase, max_iter, tol:
+        As for :func:`ppp_solve_static_batch`.
+    p1_m, p2_m, phi1_cycles, phi2_cycles:
+        ``(n_epoch, n_sv)`` raw L1 / L2 code (m) and phase (cycles).
+        Used by per-SV AR. NaN entries are tolerated.
+    sigma_wl_cycles, sigma_nl_cycles:
+        Per-SV fix-acceptance thresholds, passed to
+        :func:`fix_iono_free_ambiguity`.
+
+    Returns
+    -------
+    dict
+        ``{"float": <ppp_solve_static_batch dict>,
+           "fixed": <re-solved dict>,
+           "fixed_ambig_mask": ndarray[bool] of shape (n_sv,),
+           "n1_per_sv": ndarray[int|nan] of shape (n_sv,),
+           "n2_per_sv": ndarray[int|nan] of shape (n_sv,),
+           "ar_applied": bool}``.
+        If no SVs got fixed, ``fixed`` is the float solution and
+        ``ar_applied`` is False.
+    """
+    from .multifreq import fix_iono_free_ambiguity
+
+    float_sol = ppp_solve_static_batch(
+        pr_if, phase_if, sv_ecef, sat_clock_s,
+        tropo=tropo,
+        initial_position=initial_position,
+        sigma_code=sigma_code, sigma_phase=sigma_phase,
+        max_iter=max_iter, tol=tol,
+    )
+
+    n_sv = pr_if.shape[1]
+    fixed_mask = np.zeros(n_sv, dtype=bool)
+    fixed_ambig = np.full(n_sv, np.nan)
+    n1_arr = np.full(n_sv, np.nan)
+    n2_arr = np.full(n_sv, np.nan)
+    for j in range(n_sv):
+        ar = fix_iono_free_ambiguity(
+            p1_m[:, j], p2_m[:, j],
+            phi1_cycles[:, j], phi2_cycles[:, j],
+            float(float_sol["ambiguities_m"][j]),
+            sigma_wl_cycles=sigma_wl_cycles,
+            sigma_nl_cycles=sigma_nl_cycles,
+        )
+        if ar["wl_fixed"] and ar["nl_fixed"] and ar["parity_ok"]:
+            fixed_mask[j] = True
+            fixed_ambig[j] = ar["fixed_iono_free_ambig_m"]
+            n1_arr[j] = ar["n1"]
+            n2_arr[j] = ar["n2"]
+
+    if not fixed_mask.any():
+        return {
+            "float": float_sol,
+            "fixed": float_sol,
+            "fixed_ambig_mask": fixed_mask,
+            "n1_per_sv": n1_arr,
+            "n2_per_sv": n2_arr,
+            "ar_applied": False,
+        }
+
+    # Re-solve with fixed-ambiguity SVs held via tight pseudo-observation
+    # rows (sigma 1 mm). The float ambiguities for these SVs stay as
+    # unknowns but get pulled to the integer values by the pseudo-obs.
+    fixed_sol = _ppp_solve_static_batch_with_constraints(
+        pr_if, phase_if, sv_ecef, sat_clock_s,
+        tropo=tropo,
+        initial_position=float_sol["position"],
+        sigma_code=sigma_code, sigma_phase=sigma_phase,
+        ambig_constraints={
+            j: fixed_ambig[j] for j in range(n_sv) if fixed_mask[j]
+        },
+        max_iter=max_iter, tol=tol,
+    )
+    return {
+        "float": float_sol,
+        "fixed": fixed_sol,
+        "fixed_ambig_mask": fixed_mask,
+        "n1_per_sv": n1_arr,
+        "n2_per_sv": n2_arr,
+        "ar_applied": True,
+    }
+
+
+def _ppp_solve_static_batch_with_constraints(
+    pr_if: np.ndarray,
+    phase_if: np.ndarray,
+    sv_ecef: np.ndarray,
+    sat_clock_s: np.ndarray,
+    *,
+    tropo: np.ndarray | None,
+    initial_position: tuple[float, float, float],
+    sigma_code: float,
+    sigma_phase: float,
+    ambig_constraints: dict[int, float],
+    max_iter: int,
+    tol: float,
+) -> dict:
+    """Internal: ppp_solve_static_batch with tight ambiguity constraints.
+
+    ``ambig_constraints`` is ``{sv_index: target_ambig_m}``. Each
+    constraint is added as a pseudo-observation row that says
+    "ambiguity at this index equals target" with sigma 0.001 m. This
+    pulls the LSQ to honor the integer fix without making the matrix
+    singular (which a hard substitution would).
+    """
+    pr = np.asarray(pr_if, dtype=float)
+    ph = np.asarray(phase_if, dtype=float)
+    sv = np.asarray(sv_ecef, dtype=float)
+    dt_sv = np.asarray(sat_clock_s, dtype=float)
+    n_epoch, n_sv = pr.shape
+
+    pr_corr = pr + _C * dt_sv
+    ph_corr = ph + _C * dt_sv
+    if tropo is not None:
+        t = np.asarray(tropo, dtype=float)
+        pr_corr = pr_corr - t
+        ph_corr = ph_corr - t
+
+    n_state = 3 + n_epoch + n_sv
+    rx = np.asarray(initial_position, dtype=float).copy()
+    clk = np.zeros(n_epoch)
+    amb = np.zeros(n_sv)
+    # Initialise the constrained ambiguities at their target values so the
+    # first iteration starts near the answer.
+    for j, target in ambig_constraints.items():
+        amb[j] = target
+    # Initialise free ambiguities from the per-SV code-phase difference.
+    for j in range(n_sv):
+        if j in ambig_constraints:
+            continue
+        for k in range(n_epoch):
+            if np.isfinite(pr_corr[k, j]) and np.isfinite(ph_corr[k, j]):
+                amb[j] = pr_corr[k, j] - ph_corr[k, j]
+                break
+
+    w_code = 1.0 / (sigma_code ** 2)
+    w_phase = 1.0 / (sigma_phase ** 2)
+    # 1 mm sigma on each integer-fix constraint -> 1e6 weight.
+    w_constraint = 1.0 / (1.0e-3 ** 2)
+
+    code_resid = phase_resid = np.array([])
+    for it in range(max_iter):
+        rows = []
+        rhs = []
+        weights = []
+        for k in range(n_epoch):
+            for j in range(n_sv):
+                diff = sv[k, j] - rx
+                rho = float(np.linalg.norm(diff))
+                if rho == 0.0:
+                    continue
+                u = -diff / rho
+                if np.isfinite(pr_corr[k, j]):
+                    row = np.zeros(n_state)
+                    row[:3] = u
+                    row[3 + k] = _C
+                    pred = rho + _C * clk[k]
+                    rows.append(row)
+                    rhs.append(pr_corr[k, j] - pred)
+                    weights.append(w_code)
+                if np.isfinite(ph_corr[k, j]):
+                    row = np.zeros(n_state)
+                    row[:3] = u
+                    row[3 + k] = _C
+                    row[3 + n_epoch + j] = 1.0
+                    pred = rho + _C * clk[k] + amb[j]
+                    rows.append(row)
+                    rhs.append(ph_corr[k, j] - pred)
+                    weights.append(w_phase)
+        # Pseudo-observation rows: tight Gaussian priors on the fixed ambiguities.
+        for j, target in ambig_constraints.items():
+            row = np.zeros(n_state)
+            row[3 + n_epoch + j] = 1.0
+            rows.append(row)
+            rhs.append(target - amb[j])
+            weights.append(w_constraint)
+
+        A = np.asarray(rows)
+        y = np.asarray(rhs)
+        w = np.asarray(weights)
+        sw = np.sqrt(w)
+        try:
+            update, *_ = np.linalg.lstsq(A * sw[:, None], y * sw, rcond=None)
+        except np.linalg.LinAlgError as e:
+            raise RuntimeError(
+                f"constrained PPP normal equations singular: {e}"
+            ) from e
+        rx = rx + update[:3]
+        clk = clk + update[3:3 + n_epoch]
+        amb = amb + update[3 + n_epoch:]
+        # Pull out residuals (excluding the pseudo-obs at the end).
+        n_real = len(rows) - len(ambig_constraints)
+        code_resid = y[:n_real][w[:n_real] == w_code]
+        phase_resid = y[:n_real][w[:n_real] == w_phase]
+        if np.linalg.norm(update[:3]) < tol:
+            break
+    else:
+        raise RuntimeError(
+            f"constrained PPP did not converge in {max_iter} iterations"
+        )
+
+    return {
+        "position": (float(rx[0]), float(rx[1]), float(rx[2])),
+        "clock_per_epoch": clk,
+        "ambiguities_m": amb,
+        "n_iter": it + 1,
+        "code_residuals": code_resid,
+        "phase_residuals": phase_resid,
+    }
+
+
 __all__ = [
     "apply_klobuchar_correction",
     "apply_light_time_and_earth_rotation",
@@ -848,6 +1099,7 @@ __all__ = [
     "iono_free_pseudorange",
     "ppp_solve_code_only",
     "ppp_solve_static_batch",
+    "ppp_solve_static_batch_with_ar",
     "spp_solve",
     "spp_solve_raim",
     "tgd_from_nav",
