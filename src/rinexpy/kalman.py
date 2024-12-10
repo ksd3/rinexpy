@@ -62,6 +62,13 @@ class StaticPPPFilter:
         Receiver-clock process-noise rate in meters per sqrt(s).
         Default 10. Increase for noisier oscillators, decrease for
         atomic-disciplined receivers.
+    sigma_position_rate_m:
+        Position process-noise rate in meters per sqrt(s). Default 0
+        for a truly static receiver. Set to a positive value to enable
+        kinematic tracking: a typical pedestrian-speed PPP setup uses
+        ~0.3, a vehicle ~3, a low-Earth-orbit platform ~30. Position
+        variance grows by ``sigma_position_rate_m^2 * dt`` per
+        :meth:`predict`.
     sigma_ambig_init_m:
         1-sigma initial uncertainty of an ambiguity slot. Default
         1000 m, big enough to let any reasonable starting value
@@ -78,8 +85,14 @@ class StaticPPPFilter:
         sigma_position_init: float = 10.0,
         sigma_clock_init: float = 300.0,
         sigma_clock_rate_m: float = 10.0,
+        sigma_position_rate_m: float = 0.0,
         sigma_ambig_init_m: float = 1000.0,
     ) -> None:
+        if sigma_position_rate_m < 0:
+            raise ValueError(
+                f"sigma_position_rate_m must be >= 0, got "
+                f"{sigma_position_rate_m}"
+            )
         self.n_sv = n_sv
         self._n_state = 4 + n_sv
         self.x = np.zeros(self._n_state)
@@ -92,6 +105,7 @@ class StaticPPPFilter:
         self.sigma_code = sigma_code
         self.sigma_phase = sigma_phase
         self.sigma_clock_rate_m = sigma_clock_rate_m
+        self.sigma_position_rate_m = sigma_position_rate_m
         self.sigma_ambig_init_m = sigma_ambig_init_m
         self._ambig_initialised = np.zeros(n_sv, dtype=bool)
 
@@ -119,13 +133,19 @@ class StaticPPPFilter:
     def predict(self, dt: float) -> None:
         """Time update.
 
-        Position and ambiguities have identity dynamics with no process
-        noise (static receiver, constant ambiguities). The receiver
-        clock random-walks with variance ``sigma_clock_rate_m^2 * dt``.
+        Receiver clock random-walks with variance
+        ``sigma_clock_rate_m^2 * dt``. Position random-walks with
+        ``sigma_position_rate_m^2 * dt`` per axis when that parameter
+        is set (the default 0 keeps the filter strictly static).
+        Ambiguities are constant.
         """
         if dt < 0:
             raise ValueError(f"dt must be >= 0, got {dt}")
         self.P[3, 3] += self.sigma_clock_rate_m ** 2 * dt
+        if self.sigma_position_rate_m > 0.0:
+            growth = self.sigma_position_rate_m ** 2 * dt
+            for i in range(3):
+                self.P[i, i] += growth
 
     def reset_ambiguity(self, sv_index: int) -> None:
         """Wipe one SV's ambiguity (e.g. after a cycle slip).
