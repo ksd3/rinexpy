@@ -448,6 +448,94 @@ def saastamoinen(
     return float(0.002277 / cos_z * (P + (1255.0 / T + 0.05) * e - tan_z2))
 
 
+def _enu_rotation(lat_rad: float, lon_rad: float) -> np.ndarray:
+    """ECEF -> ENU rotation matrix at the given geodetic lat/lon."""
+    sl, cl = np.sin(lat_rad), np.cos(lat_rad)
+    sg, cg = np.sin(lon_rad), np.cos(lon_rad)
+    return np.array(
+        [
+            [-sg, cg, 0.0],
+            [-sl * cg, -sl * sg, cl],
+            [cl * cg, cl * sg, sl],
+        ]
+    )
+
+
+def ecef_to_enu(
+    target_ecef,
+    ref_ecef,
+) -> np.ndarray:
+    """Convert one or more ECEF positions to a local East-North-Up frame.
+
+    The local frame is anchored at ``ref_ecef`` (a geodetic point). The
+    returned ENU vector is the displacement from ``ref_ecef`` to
+    ``target_ecef`` expressed in (east, north, up) meters.
+
+    Parameters
+    ----------
+    target_ecef:
+        ``(3,)`` ECEF point or ``(n, 3)`` array of points in meters.
+    ref_ecef:
+        ``(3,)`` ECEF reference position in meters.
+
+    Returns
+    -------
+    ndarray
+        Same shape as ``target_ecef``: a 3-vector or ``(n, 3)`` array of
+        ENU displacements in meters.
+    """
+    ref = np.asarray(ref_ecef, dtype=float)
+    if ref.shape != (3,):
+        raise ValueError(f"ref_ecef must have shape (3,), got {ref.shape}")
+    tgt = np.asarray(target_ecef, dtype=float)
+    lat_deg, lon_deg, _ = ecef_to_lla(ref[0], ref[1], ref[2])
+    R = _enu_rotation(np.deg2rad(lat_deg), np.deg2rad(lon_deg))
+    if tgt.ndim == 1:
+        if tgt.shape != (3,):
+            raise ValueError(f"target_ecef must have shape (3,) or (n, 3), got {tgt.shape}")
+        return R @ (tgt - ref)
+    if tgt.ndim == 2 and tgt.shape[1] == 3:
+        return (R @ (tgt - ref).T).T
+    raise ValueError(
+        f"target_ecef must have shape (3,) or (n, 3), got {tgt.shape}"
+    )
+
+
+def enu_to_ecef(
+    enu,
+    ref_ecef,
+) -> np.ndarray:
+    """Convert a local ENU displacement back to an ECEF position.
+
+    Inverse of :func:`ecef_to_enu`.
+
+    Parameters
+    ----------
+    enu:
+        ``(3,)`` or ``(n, 3)`` ENU displacement in meters.
+    ref_ecef:
+        ``(3,)`` ECEF reference position in meters.
+
+    Returns
+    -------
+    ndarray
+        ECEF point or array of points in meters.
+    """
+    ref = np.asarray(ref_ecef, dtype=float)
+    if ref.shape != (3,):
+        raise ValueError(f"ref_ecef must have shape (3,), got {ref.shape}")
+    e = np.asarray(enu, dtype=float)
+    lat_deg, lon_deg, _ = ecef_to_lla(ref[0], ref[1], ref[2])
+    R = _enu_rotation(np.deg2rad(lat_deg), np.deg2rad(lon_deg))
+    if e.ndim == 1:
+        if e.shape != (3,):
+            raise ValueError(f"enu must have shape (3,) or (n, 3), got {e.shape}")
+        return ref + R.T @ e
+    if e.ndim == 2 and e.shape[1] == 3:
+        return ref + (R.T @ e.T).T
+    raise ValueError(f"enu must have shape (3,) or (n, 3), got {e.shape}")
+
+
 def phase_wind_up_correction(
     sat_xhat,
     sat_yhat,
@@ -524,7 +612,9 @@ def phase_wind_up_correction(
 __all__ = [
     "azimuth_elevation",
     "dop",
+    "ecef_to_enu",
     "ecef_to_lla",
+    "enu_to_ecef",
     "klobuchar",
     "lla_to_ecef",
     "niell_mapping",
