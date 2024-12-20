@@ -108,6 +108,9 @@ class StaticPPPFilter:
         self.sigma_position_rate_m = sigma_position_rate_m
         self.sigma_ambig_init_m = sigma_ambig_init_m
         self._ambig_initialised = np.zeros(n_sv, dtype=bool)
+        # Per-SV previous Melbourne-Wuebbena value in wide-lane cycles,
+        # used by update_with_slip_check.
+        self._prev_mw_wl_cycles = np.full(n_sv, np.nan)
 
     @property
     def position(self) -> tuple[float, float, float]:
@@ -160,6 +163,8 @@ class StaticPPPFilter:
         self.P[:, i] = 0.0
         self.P[i, i] = self.sigma_ambig_init_m ** 2
         self._ambig_initialised[sv_index] = False
+        # Force the MW history to re-baseline on the next slip-aware call.
+        self._prev_mw_wl_cycles[sv_index] = np.nan
 
     def reset_ambiguities(self, sv_indices) -> None:
         """Batch wipe ambiguity slots; see :meth:`reset_ambiguity`."""
@@ -271,6 +276,100 @@ class StaticPPPFilter:
             u = -diff / rho
             self._scalar_update(u, code=False, sv_index=j,
                                 obs=ph_corr[j], rho=rho)
+
+    def update_with_slip_check(
+        self,
+        sv_ecef: np.ndarray,
+        sat_clock_s: np.ndarray,
+        p1_m: np.ndarray,
+        p2_m: np.ndarray,
+        phi1_cycles: np.ndarray,
+        phi2_cycles: np.ndarray,
+        *,
+        tropo_m: np.ndarray | None = None,
+        slip_threshold_cycles: float = 2.0,
+        f1: float = 1575.42e6,
+        f2: float = 1227.60e6,
+    ) -> np.ndarray:
+        """Slip-aware measurement update.
+
+        Computes the Melbourne-Wuebbena combination per SV from the raw
+        L1 / L2 code + phase observations and compares it to the
+        previous epoch's MW value. Any SV whose first-difference exceeds
+        ``slip_threshold_cycles`` (in wide-lane cycles) is flagged as
+        having slipped, and its ambiguity slot is wiped via
+        :meth:`reset_ambiguity` before the regular measurement update
+        runs.
+
+        The iono-free code and phase observations are formed internally
+        from the raw L1 / L2 inputs.
+
+        Parameters
+        ----------
+        sv_ecef:
+            ``(n_sv, 3)`` satellite ECEF positions at signal emission.
+        sat_clock_s:
+            ``(n_sv,)`` precise satellite clocks in seconds.
+        p1_m, p2_m:
+            ``(n_sv,)`` raw L1 / L2 code pseudoranges in meters.
+        phi1_cycles, phi2_cycles:
+            ``(n_sv,)`` raw L1 / L2 carrier phase in cycles.
+        tropo_m:
+            Optional ``(n_sv,)`` slant tropospheric delay in meters.
+        slip_threshold_cycles:
+            MW first-difference threshold in wide-lane cycles. Default 2.0,
+            which is loose enough to be stable on realistic code-noise
+            data without missing real one-cycle slips. Lower for cleaner
+            signals.
+        f1, f2:
+            Carrier frequencies. Defaults are GPS L1, L2.
+
+        Returns
+        -------
+        ndarray
+            Boolean ``(n_sv,)`` mask: ``True`` where a slip was flagged
+            and the ambiguity was reset before this epoch's update.
+        """
+        from .positioning import iono_free_phase, iono_free_pseudorange
+
+        p1 = np.asarray(p1_m, dtype=float)
+        p2 = np.asarray(p2_m, dtype=float)
+        phi1 = np.asarray(phi1_cycles, dtype=float)
+        phi2 = np.asarray(phi2_cycles, dtype=float)
+        if (
+            p1.shape != (self.n_sv,) or p2.shape != (self.n_sv,)
+            or phi1.shape != (self.n_sv,) or phi2.shape != (self.n_sv,)
+        ):
+            raise ValueError(
+                f"L1/L2 observation arrays must have shape ({self.n_sv},)"
+            )
+
+        # MW in wide-lane cycles per SV:
+        #   MW_cycles = (phi1 - phi2) - (f1 - f2)/(f1 + f2) * (p1/lam1 + p2/lam2)
+        lam1 = _C / f1
+        lam2 = _C / f2
+        mw_cycles = (phi1 - phi2) - (
+            (f1 - f2) / (f1 + f2) * (p1 / lam1 + p2 / lam2)
+        )
+
+        slip_mask = np.zeros(self.n_sv, dtype=bool)
+        for j in range(self.n_sv):
+            if not np.isfinite(mw_cycles[j]):
+                continue
+            prev = self._prev_mw_wl_cycles[j]
+            if np.isfinite(prev):
+                if abs(mw_cycles[j] - prev) > slip_threshold_cycles:
+                    self.reset_ambiguity(j)
+                    slip_mask[j] = True
+            self._prev_mw_wl_cycles[j] = mw_cycles[j]
+
+        # Form iono-free observations and run the standard update.
+        l1_m = phi1 * lam1
+        l2_m = phi2 * lam2
+        pr_if = iono_free_pseudorange(p1, p2, f1=f1, f2=f2)
+        phase_if = iono_free_phase(l1_m, l2_m, f1=f1, f2=f2)
+        self.update(sv_ecef, sat_clock_s, pr_if, phase_if, tropo_m=tropo_m)
+        return slip_mask
 
     def _scalar_update(
         self,
