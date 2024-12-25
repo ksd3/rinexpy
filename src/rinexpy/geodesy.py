@@ -536,6 +536,162 @@ def enu_to_ecef(
     raise ValueError(f"enu must have shape (3,) or (n, 3), got {e.shape}")
 
 
+def _julian_date_utc(epoch) -> float:
+    """Julian date (UTC) for a datetime / numpy.datetime64 / aware datetime."""
+    from datetime import datetime, timezone
+    if isinstance(epoch, np.datetime64):
+        epoch = epoch.astype("datetime64[us]").tolist()
+    if epoch.tzinfo is None:
+        epoch = epoch.replace(tzinfo=timezone.utc)
+    epoch = epoch.astimezone(timezone.utc)
+    y = epoch.year
+    m = epoch.month
+    d = (
+        epoch.day
+        + (epoch.hour + (epoch.minute + epoch.second / 60.0) / 60.0) / 24.0
+    )
+    if m <= 2:
+        y -= 1
+        m += 12
+    A = y // 100
+    B = 2 - A + A // 4
+    import math
+    return (
+        math.floor(365.25 * (y + 4716))
+        + math.floor(30.6001 * (m + 1))
+        + d + B - 1524.5
+    )
+
+
+def _gmst_rad(jd_ut1: float) -> float:
+    """Greenwich Mean Sidereal Time (radians) at the given UT1 Julian date."""
+    import math
+    T = (jd_ut1 - 2451545.0) / 36525.0
+    gmst_sec = (
+        67310.54841
+        + (876600.0 * 3600.0 + 8640184.812866) * T
+        + 0.093104 * T * T
+        - 6.2e-6 * T * T * T
+    )
+    return (gmst_sec / 86400.0 * 2.0 * math.pi) % (2.0 * math.pi)
+
+
+def ecef_to_eci(pos_ecef, epoch, *, eop=None) -> np.ndarray:
+    """Convert an ECEF position vector to ECI (TEME-style, low-precision).
+
+    The transformation applied is
+
+        v_ECI = R_z(-GMST(t_UT1)) @ W(t)^T @ v_ECEF
+
+    where ``GMST(t_UT1)`` is the Greenwich Mean Sidereal Time at the
+    UT1-corrected epoch and ``W(t)`` is the polar-motion rotation
+    ``R_x(-y_p) R_y(-x_p)`` (only applied when ``eop`` is provided).
+
+    Precision: sub-meter at the Earth surface without EOP, sub-cm with
+    EOP. Note: this is the low-precision reduction; for sub-cm at GPS
+    orbit altitudes precession and nutation also need to be applied
+    (use an astronomy library for that).
+
+    Parameters
+    ----------
+    pos_ecef:
+        ``(3,)`` or ``(n, 3)`` ECEF position in meters.
+    epoch:
+        Observation epoch (``datetime`` or ``numpy.datetime64``).
+    eop:
+        Optional EOP dataset from :func:`rinexpy.eop.load_eop`. If
+        provided, the UT1-UTC offset and polar-motion (x, y) at the
+        epoch are applied; otherwise UT1 is assumed equal to UTC and
+        polar motion is ignored.
+
+    Returns
+    -------
+    ndarray
+        ECI position, same shape as input.
+    """
+    import math
+    pos = np.asarray(pos_ecef, dtype=float)
+    jd_utc = _julian_date_utc(epoch)
+    if eop is not None:
+        from .eop import interp_eop
+        e = interp_eop(eop, epoch)
+        jd_ut1 = jd_utc + e["ut1_utc"] / 86400.0
+        x_p = math.radians(e["x"] / 3600.0)
+        y_p = math.radians(e["y"] / 3600.0)
+    else:
+        jd_ut1 = jd_utc
+        x_p = 0.0
+        y_p = 0.0
+    gmst = _gmst_rad(jd_ut1)
+    c, s = math.cos(gmst), math.sin(gmst)
+    # Inverse of R_z(GMST) is R_z(-GMST) i.e. [[c, -s, 0], [s, c, 0]]
+    R_eci_from_tirs = np.array([
+        [c, -s, 0.0],
+        [s, c, 0.0],
+        [0.0, 0.0, 1.0],
+    ])
+    if x_p == 0.0 and y_p == 0.0:
+        W_T = np.eye(3)
+    else:
+        # W^T = R_y(x_p) R_x(y_p), small rotations.
+        cx, sx = math.cos(x_p), math.sin(x_p)
+        cy, sy = math.cos(y_p), math.sin(y_p)
+        Ry = np.array([[cx, 0.0, sx], [0.0, 1.0, 0.0], [-sx, 0.0, cx]])
+        Rx = np.array([[1.0, 0.0, 0.0], [0.0, cy, -sy], [0.0, sy, cy]])
+        W_T = Ry @ Rx
+    M = R_eci_from_tirs @ W_T
+    if pos.ndim == 1:
+        if pos.shape != (3,):
+            raise ValueError(f"pos_ecef must be (3,) or (n,3), got {pos.shape}")
+        return M @ pos
+    if pos.ndim == 2 and pos.shape[1] == 3:
+        return (M @ pos.T).T
+    raise ValueError(f"pos_ecef must be (3,) or (n,3), got {pos.shape}")
+
+
+def eci_to_ecef(pos_eci, epoch, *, eop=None) -> np.ndarray:
+    """Inverse of :func:`ecef_to_eci`.
+
+    Same precision caveats apply.
+    """
+    import math
+    pos = np.asarray(pos_eci, dtype=float)
+    jd_utc = _julian_date_utc(epoch)
+    if eop is not None:
+        from .eop import interp_eop
+        e = interp_eop(eop, epoch)
+        jd_ut1 = jd_utc + e["ut1_utc"] / 86400.0
+        x_p = math.radians(e["x"] / 3600.0)
+        y_p = math.radians(e["y"] / 3600.0)
+    else:
+        jd_ut1 = jd_utc
+        x_p = 0.0
+        y_p = 0.0
+    gmst = _gmst_rad(jd_ut1)
+    c, s = math.cos(gmst), math.sin(gmst)
+    R_tirs_from_eci = np.array([
+        [c, s, 0.0],
+        [-s, c, 0.0],
+        [0.0, 0.0, 1.0],
+    ])
+    if x_p == 0.0 and y_p == 0.0:
+        W = np.eye(3)
+    else:
+        cx, sx = math.cos(x_p), math.sin(x_p)
+        cy, sy = math.cos(y_p), math.sin(y_p)
+        Ry = np.array([[cx, 0.0, -sx], [0.0, 1.0, 0.0], [sx, 0.0, cx]])
+        Rx = np.array([[1.0, 0.0, 0.0], [0.0, cy, sy], [0.0, -sy, cy]])
+        W = Rx @ Ry
+    M = W @ R_tirs_from_eci
+    if pos.ndim == 1:
+        if pos.shape != (3,):
+            raise ValueError(f"pos_eci must be (3,) or (n,3), got {pos.shape}")
+        return M @ pos
+    if pos.ndim == 2 and pos.shape[1] == 3:
+        return (M @ pos.T).T
+    raise ValueError(f"pos_eci must be (3,) or (n,3), got {pos.shape}")
+
+
 def phase_wind_up_correction(
     sat_xhat,
     sat_yhat,
@@ -612,8 +768,10 @@ def phase_wind_up_correction(
 __all__ = [
     "azimuth_elevation",
     "dop",
+    "ecef_to_eci",
     "ecef_to_enu",
     "ecef_to_lla",
+    "eci_to_ecef",
     "enu_to_ecef",
     "klobuchar",
     "lla_to_ecef",
