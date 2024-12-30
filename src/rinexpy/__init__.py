@@ -66,7 +66,7 @@ from .nav3 import navtime3, rinexnav3
 from .obs2 import obstime2, rinexobs2
 from .obs3 import obstime3, rinexobs3
 from .positioning import spp_solve
-from .sp3 import load_sp3
+from .sp3 import load_sp3, stitch_sp3
 from .streaming import iter_obs3_epochs
 from .writer import to_rinex_obs
 
@@ -93,6 +93,7 @@ __all__ = [
     "load_gpt2w_grid",
     "load_ionex",
     "load_sp3",
+    "stitch_sp3",
     "navheader2",
     "navheader3",
     "navtime2",

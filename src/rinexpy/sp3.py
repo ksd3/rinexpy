@@ -196,4 +196,43 @@ def _parse_sv_chunk(line: str, n_sv: int) -> list[str]:
     return out
 
 
-__all__ = ["load_sp3"]
+def stitch_sp3(*paths) -> xr.Dataset:
+    """Load and concatenate consecutive daily SP3 files along time.
+
+    IGS daily SP3 products include the first epoch of the next day for
+    interpolation continuity, so naive concatenation produces duplicate
+    time stamps at every day boundary. This helper concatenates with
+    ``xarray.concat`` and then drops duplicate epochs, keeping the
+    first occurrence. The SV axis is the union across all inputs (an
+    SV missing on one day shows up as NaN there).
+
+    Parameters
+    ----------
+    *paths:
+        One or more SP3 file paths. Order doesn't matter; epochs are
+        sorted before duplicate removal.
+
+    Returns
+    -------
+    xarray.Dataset
+        Same data variables as :func:`load_sp3`. Concatenated along
+        ``time``; sorted; duplicate times dropped.
+
+    Raises
+    ------
+    ValueError
+        If no paths are provided.
+    """
+    if not paths:
+        raise ValueError("stitch_sp3 needs at least one path")
+    parts = [load_sp3(p) for p in paths]
+    if len(parts) == 1:
+        return parts[0]
+    combined = xr.concat(parts, dim="time", join="outer", data_vars="all")
+    combined = combined.sortby("time")
+    _, unique_idx = np.unique(combined.time.values, return_index=True)
+    combined = combined.isel(time=np.sort(unique_idx))
+    return combined
+
+
+__all__ = ["load_sp3", "stitch_sp3"]
