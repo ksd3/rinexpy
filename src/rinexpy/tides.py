@@ -234,6 +234,134 @@ def solid_earth_tide_displacement(
     return dr
 
 
+def step2_k1_displacement(
+    station_ecef: np.ndarray,
+    epoch: "datetime | np.datetime64",
+) -> np.ndarray:
+    """K1 diurnal frequency-dependent correction (IERS 2010 Table 7.3a row 1).
+
+    This is the dominant frequency-dependent correction layered on top
+    of :func:`solid_earth_tide_displacement` (which is step-1, the
+    in-phase degree-2 tide). The K1 amplitude is sub-mm at mid-latitudes
+    and the other 10 diurnal-band entries plus 5 long-period entries in
+    the full Table 7.3a / 7.3b are all under 0.4 mm; we ship the K1
+    term to expose the framework and explicitly document that the rest
+    is deferred (each follows the same pattern of a Doodson argument
+    multiplied by tabulated in-phase / out-of-phase amplitudes).
+
+    Formula (IERS Conventions 2010 equation 7.12, diurnal band):
+
+        delta_radial = dR_K1 * sin(2*phi) * sin(theta + lambda)
+        delta_north  = dT_K1 * cos(2*phi) * sin(theta + lambda)
+        delta_east   = dT_K1 * sin(phi)   * cos(theta + lambda)
+
+    with ``dR_K1 = -0.253 mm``, ``dT_K1 = -0.081 mm`` from IERS Table
+    7.3a, ``phi`` the geodetic latitude, ``lambda`` the east longitude,
+    and ``theta`` the Doodson argument approximated as GMST (the
+    full argument includes ~arcsec corrections that are well below the
+    sub-mm amplitudes).
+
+    Parameters
+    ----------
+    station_ecef:
+        ``(3,)`` ECEF station position in meters.
+    epoch:
+        Observation epoch (``datetime`` or ``numpy.datetime64``).
+
+    Returns
+    -------
+    ndarray
+        ``(3,)`` ECEF displacement in meters.
+    """
+    from .geodesy import ecef_to_lla, enu_to_ecef
+    station = np.asarray(station_ecef, dtype=float)
+    lat_deg, lon_deg, _ = ecef_to_lla(*station)
+    lat = math.radians(lat_deg)
+    lon = math.radians(lon_deg)
+    jd = _julian_date(epoch)
+    theta = _gmst_rad(jd) + lon
+
+    dR_K1 = -0.253e-3
+    dT_K1 = -0.081e-3
+    d_up = dR_K1 * math.sin(2.0 * lat) * math.sin(theta)
+    d_north = dT_K1 * math.cos(2.0 * lat) * math.sin(theta)
+    d_east = dT_K1 * math.sin(lat) * math.cos(theta)
+
+    enu = np.array([d_east, d_north, d_up])
+    return enu_to_ecef(enu, station) - station
+
+
+def pole_tide_displacement(
+    station_ecef: np.ndarray,
+    eop,
+    epoch,
+) -> np.ndarray:
+    """Solid-earth pole tide displacement (IERS 2010 section 7.1.4).
+
+    The pole tide is the elastic crustal response to the centrifugal
+    bulge that wobbles with the Earth's polar motion. The displacement
+    at the station is
+
+        delta_radial = -33 mm * sin(2*phi) * (m1*cos(lon) + m2*sin(lon))
+        delta_north  = -9  mm * cos(2*phi) * (m1*cos(lon) + m2*sin(lon))
+        delta_east   = +9  mm *  cos(phi)  * (m1*sin(lon) - m2*cos(lon))
+
+    where ``m1 = x_p - x_mean`` and ``m2 = -(y_p - y_mean)`` are the
+    polar-motion deviations from the long-term mean pole position (in
+    arcseconds), ``x_p`` / ``y_p`` come from the EOP series, and
+    ``x_mean`` / ``y_mean`` follow the IERS 2010 linear-drift mean-pole
+    model. Peak amplitude ~5 mm at mid-latitudes; required for sub-cm
+    PPP.
+
+    Parameters
+    ----------
+    station_ecef:
+        ``(3,)`` ECEF station position in meters.
+    eop:
+        EOP dataset from :func:`rinexpy.eop.load_eop`.
+    epoch:
+        Observation epoch.
+
+    Returns
+    -------
+    ndarray
+        ``(3,)`` ECEF displacement in meters.
+    """
+    from .eop import interp_eop
+    from .geodesy import ecef_to_lla, enu_to_ecef
+    station = np.asarray(station_ecef, dtype=float)
+    lat_deg, lon_deg, _ = ecef_to_lla(*station)
+    phi = math.radians(lat_deg)
+    lam = math.radians(lon_deg)
+    e = interp_eop(eop, epoch)
+    # Linear-drift mean-pole model (IERS 2010 section 7.1.4, table 7.7).
+    # t in years from 2000.0; for epochs before 2010 the pre-2010
+    # coefficients apply, after 2010 the post-2010 set.
+    if isinstance(epoch, np.datetime64):
+        epoch_py = epoch.astype("datetime64[us]").tolist()
+    else:
+        epoch_py = epoch
+    t_years = (epoch_py.year + epoch_py.month / 12.0) - 2000.0
+    if t_years < 10.0:
+        x_mean = 0.055 + 1.677e-3 * t_years
+        y_mean = 0.3205 + 3.460e-3 * t_years
+    else:
+        x_mean = 0.0230 + 7.6e-3 * t_years
+        y_mean = 0.3543 - 0.6e-3 * t_years
+    m1 = e["x"] - x_mean    # arcseconds
+    m2 = -(e["y"] - y_mean)
+    s2p = math.sin(2.0 * phi)
+    c2p = math.cos(2.0 * phi)
+    cp = math.cos(phi)
+    sl = math.sin(lam)
+    cl = math.cos(lam)
+    d_up = -33e-3 * s2p * (m1 * cl + m2 * sl)
+    d_north = -9e-3 * c2p * (m1 * cl + m2 * sl)
+    d_east = 9e-3 * cp * (m1 * sl - m2 * cl)
+    enu = np.array([d_east, d_north, d_up])
+    return enu_to_ecef(enu, station) - station
+
+
 __all__ = [
     "GM_EARTH",
     "GM_MOON",
@@ -242,6 +370,8 @@ __all__ = [
     "L2_SHIDA",
     "R_EARTH",
     "moon_position_ecef",
+    "pole_tide_displacement",
     "solid_earth_tide_displacement",
+    "step2_k1_displacement",
     "sun_position_ecef",
 ]
