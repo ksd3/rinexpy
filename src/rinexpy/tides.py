@@ -234,32 +234,196 @@ def solid_earth_tide_displacement(
     return dr
 
 
-def step2_k1_displacement(
+# IERS 2010 Conventions Table 7.3a (diurnal band) coefficients, ported
+# directly from the reference Fortran STEP2DIU.F (Mathews, Dehant, Gipson
+# 1997 / IERS Conventions Center). Columns:
+#   (n_s, n_h, n_p, n_zns, n_ps, dR_ip, dR_op, dT_ip, dT_op)
+# Phase angle theta_f = TAU + n_s*S + n_h*H + n_p*P + n_zns*ZNS + n_ps*PS,
+# amplitudes in millimeters.
+_STEP2_DIURNAL = np.array([
+    (-3, 0, 2, 0, 0,  -0.01,  0.00,  0.00,  0.00),
+    (-3, 2, 0, 0, 0,  -0.01,  0.00,  0.00,  0.00),
+    (-2, 0, 1,-1, 0,  -0.02,  0.00,  0.00,  0.00),
+    (-2, 0, 1, 0, 0,  -0.08,  0.00, -0.01,  0.01),
+    (-2, 2,-1, 0, 0,  -0.02,  0.00,  0.00,  0.00),
+    (-1, 0, 0,-1, 0,  -0.10,  0.00,  0.00,  0.00),
+    (-1, 0, 0, 0, 0,  -0.51,  0.00, -0.02,  0.03),
+    (-1, 2, 0, 0, 0,   0.01,  0.00,  0.00,  0.00),
+    ( 0,-2, 1, 0, 0,   0.01,  0.00,  0.00,  0.00),
+    ( 0, 0,-1, 0, 0,   0.02,  0.00,  0.00,  0.00),
+    ( 0, 0, 1, 0, 0,   0.06,  0.00,  0.00,  0.00),
+    ( 0, 0, 1, 1, 0,   0.01,  0.00,  0.00,  0.00),
+    ( 0, 2,-1, 0, 0,   0.01,  0.00,  0.00,  0.00),
+    ( 1,-3, 0, 0, 1,  -0.06,  0.00,  0.00,  0.00),
+    ( 1,-2, 0,-1, 0,   0.01,  0.00,  0.00,  0.00),
+    ( 1,-2, 0, 0, 0,  -1.23, -0.07,  0.06,  0.01),
+    ( 1,-1, 0, 0,-1,   0.02,  0.00,  0.00,  0.00),
+    ( 1,-1, 0, 0, 1,   0.04,  0.00,  0.00,  0.00),
+    ( 1, 0, 0,-1, 0,  -0.22,  0.01,  0.01,  0.00),
+    ( 1, 0, 0, 0, 0,  12.00, -0.80, -0.67, -0.03),
+    ( 1, 0, 0, 1, 0,   1.73, -0.12, -0.10,  0.00),
+    ( 1, 0, 0, 2, 0,  -0.04,  0.00,  0.00,  0.00),
+    ( 1, 1, 0, 0,-1,  -0.50, -0.01,  0.03,  0.00),
+    ( 1, 1, 0, 0, 1,   0.01,  0.00,  0.00,  0.00),
+    ( 0, 1, 0, 1,-1,  -0.01,  0.00,  0.00,  0.00),
+    ( 1, 2,-2, 0, 0,  -0.01,  0.00,  0.00,  0.00),
+    ( 1, 2, 0, 0, 0,  -0.11,  0.01,  0.01,  0.00),
+    ( 2,-2, 1, 0, 0,  -0.01,  0.00,  0.00,  0.00),
+    ( 2, 0,-1, 0, 0,  -0.02,  0.00,  0.00,  0.00),
+    ( 3, 0, 0, 0, 0,   0.00,  0.00,  0.00,  0.00),
+    ( 3, 0, 0, 1, 0,   0.00,  0.00,  0.00,  0.00),
+], dtype=float)
+
+# IERS 2010 Conventions Table 7.3b (long-period band) coefficients, ported
+# from STEP2LON.F. Note the column order differs from STEP2DIU:
+#   (n_s, n_h, n_p, n_zns, n_ps, dR_ip, dT_ip, dR_op, dT_op)
+# Phase angle theta_f = n_s*S + n_h*H + n_p*P + n_zns*ZNS + n_ps*PS (no TAU).
+_STEP2_LONG_PERIOD = np.array([
+    (0, 0, 0, 1, 0,  0.47,  0.23,  0.16,  0.07),
+    (0, 2, 0, 0, 0, -0.20, -0.12, -0.11, -0.05),
+    (1, 0,-1, 0, 0, -0.11, -0.08, -0.09, -0.04),
+    (2, 0, 0, 0, 0, -0.13, -0.11, -0.15, -0.07),
+    (2, 0, 0, 1, 0, -0.05, -0.05, -0.06, -0.03),
+], dtype=float)
+
+
+def _t_centuries_tt(epoch) -> float:
+    """TT centuries since J2000. Approximates TT - UTC = 0 (the resulting
+    error in the slow fundamental arguments is ~ 1e-3 arcsec, well below
+    the sub-mm amplitudes in the step-2 tables)."""
+    return (_julian_date(epoch) - 2451545.0) / 36525.0
+
+
+def _fractional_hours_ut(epoch) -> float:
+    """UT fractional hours of the day from a datetime / numpy.datetime64."""
+    if isinstance(epoch, np.datetime64):
+        epoch = epoch.astype("datetime64[us]").tolist()
+    if epoch.tzinfo is None:
+        epoch = epoch.replace(tzinfo=timezone.utc)
+    epoch = epoch.astimezone(timezone.utc)
+    return epoch.hour + epoch.minute / 60.0 + (
+        epoch.second + epoch.microsecond * 1e-6
+    ) / 3600.0
+
+
+def _step2_fundamental_arguments(t: float, fhr: float):
+    """Return (S, H, P, ZNS, PS, TAU) in degrees, reduced to [0, 360).
+
+    Implements the Brown / Bretagnon mean-element series exactly as in
+    STEP2DIU.F lines 119-158: ``S`` is the moon's mean longitude,
+    ``H`` the sun's mean longitude, ``P`` the longitude of the moon's
+    perigee, ``ZNS`` the longitude of the moon's ascending node, ``PS``
+    the longitude of the sun's perigee, and ``TAU`` the lunar hour angle.
+    """
+    S = 218.31664563 + (481267.88194 + (-0.0014663889 + 0.00000185139 * t) * t) * t
+    TAU = (
+        fhr * 15.0
+        + 280.4606184
+        + (36000.7700536 + (0.00038793 + (-0.0000000258) * t) * t) * t
+        - S
+    )
+    PR = (1.396971278 + (0.000308889 + (0.000000021 + 0.000000007 * t) * t) * t) * t
+    S = S + PR
+    H = 280.46645 + (
+        36000.7697489 + (0.00030322222 + (0.000000020 + (-0.00000000654) * t) * t) * t
+    ) * t
+    P = 83.35324312 + (
+        4069.01363525
+        + (-0.01032172222 + (-0.0000124991 + 0.00000005263 * t) * t) * t
+    ) * t
+    ZNS = 234.95544499 + (
+        1934.13626197
+        + (-0.00207561111 + (-0.00000213944 + 0.00000001650 * t) * t) * t
+    ) * t
+    PS = 282.93734098 + (
+        1.71945766667
+        + (0.00045688889 + (-0.00000001778 + (-0.00000000334) * t) * t) * t
+    ) * t
+    return S % 360.0, H % 360.0, P % 360.0, ZNS % 360.0, PS % 360.0, TAU % 360.0
+
+
+def _step2_diurnal_core(station_ecef: np.ndarray, t: float, fhr: float) -> np.ndarray:
+    """Diurnal-band step-2 displacement, low-level (T, FHR) interface.
+
+    Direct Python port of STEP2DIU.F. Inputs ``t`` (TT centuries since
+    J2000) and ``fhr`` (UT fractional hours) are decoupled from the
+    epoch representation so the IERS reference test case can be hit
+    exactly.
+    """
+    station = np.asarray(station_ecef, dtype=float)
+    S, H, P, ZNS, PS, TAU = _step2_fundamental_arguments(t, fhr)
+    rsta = float(np.linalg.norm(station))
+    sinphi = station[2] / rsta
+    cosphi = math.sqrt(station[0] ** 2 + station[1] ** 2) / rsta
+    cosla = station[0] / (cosphi * rsta)
+    sinla = station[1] / (cosphi * rsta)
+    zla = math.atan2(station[1], station[0])
+
+    xc = np.zeros(3)
+    deg = math.pi / 180.0
+    sin2pc = 2.0 * sinphi * cosphi
+    csm = cosphi ** 2 - sinphi ** 2
+    for row in _STEP2_DIURNAL:
+        c_s, c_h, c_p, c_zns, c_ps, dRin, dRout, dTin, dTout = row
+        thetaf = (TAU + c_s * S + c_h * H + c_p * P + c_zns * ZNS + c_ps * PS) * deg
+        a = thetaf + zla
+        sa = math.sin(a)
+        ca = math.cos(a)
+        dr = dRin * sin2pc * sa + dRout * sin2pc * ca
+        dn = dTin * csm * sa + dTout * csm * ca
+        de = dTin * sinphi * ca - dTout * sinphi * sa
+        xc[0] += dr * cosla * cosphi - de * sinla - dn * sinphi * cosla
+        xc[1] += dr * sinla * cosphi + de * cosla - dn * sinphi * sinla
+        xc[2] += dr * sinphi + dn * cosphi
+    return xc / 1000.0
+
+
+def _step2_long_period_core(station_ecef: np.ndarray, t: float) -> np.ndarray:
+    """Long-period-band step-2 displacement, low-level T-only interface.
+
+    Direct Python port of STEP2LON.F. The east component is identically
+    zero in the long-period band (zonal tides only deform radially and
+    meridionally).
+    """
+    station = np.asarray(station_ecef, dtype=float)
+    # TAU drops out of the long-period band; pass a dummy fhr.
+    S, H, P, ZNS, PS, _ = _step2_fundamental_arguments(t, 0.0)
+    rsta = float(np.linalg.norm(station))
+    sinphi = station[2] / rsta
+    cosphi = math.sqrt(station[0] ** 2 + station[1] ** 2) / rsta
+    cosla = station[0] / (cosphi * rsta)
+    sinla = station[1] / (cosphi * rsta)
+
+    xc = np.zeros(3)
+    deg = math.pi / 180.0
+    p2 = (3.0 * sinphi * sinphi - 1.0) / 2.0
+    sin2pc = 2.0 * sinphi * cosphi
+    for row in _STEP2_LONG_PERIOD:
+        c_s, c_h, c_p, c_zns, c_ps, dRin, dTin, dRout, dTout = row
+        thetaf = (c_s * S + c_h * H + c_p * P + c_zns * ZNS + c_ps * PS) * deg
+        ct = math.cos(thetaf)
+        st = math.sin(thetaf)
+        dr = dRin * p2 * ct + dRout * p2 * st
+        dn = dTin * sin2pc * ct + dTout * sin2pc * st
+        # east component is zero in this band
+        xc[0] += dr * cosla * cosphi - dn * sinphi * cosla
+        xc[1] += dr * sinla * cosphi - dn * sinphi * sinla
+        xc[2] += dr * sinphi + dn * cosphi
+    return xc / 1000.0
+
+
+def step2_diurnal_displacement(
     station_ecef: np.ndarray,
     epoch: "datetime | np.datetime64",
 ) -> np.ndarray:
-    """K1 diurnal frequency-dependent correction (IERS 2010 Table 7.3a row 1).
+    """Step-2 frequency-dependent correction in the diurnal band.
 
-    This is the dominant frequency-dependent correction layered on top
-    of :func:`solid_earth_tide_displacement` (which is step-1, the
-    in-phase degree-2 tide). The K1 amplitude is sub-mm at mid-latitudes
-    and the other 10 diurnal-band entries plus 5 long-period entries in
-    the full Table 7.3a / 7.3b are all under 0.4 mm; we ship the K1
-    term to expose the framework and explicitly document that the rest
-    is deferred (each follows the same pattern of a Doodson argument
-    multiplied by tabulated in-phase / out-of-phase amplitudes).
-
-    Formula (IERS Conventions 2010 equation 7.12, diurnal band):
-
-        delta_radial = dR_K1 * sin(2*phi) * sin(theta + lambda)
-        delta_north  = dT_K1 * cos(2*phi) * sin(theta + lambda)
-        delta_east   = dT_K1 * sin(phi)   * cos(theta + lambda)
-
-    with ``dR_K1 = -0.253 mm``, ``dT_K1 = -0.081 mm`` from IERS Table
-    7.3a, ``phi`` the geodetic latitude, ``lambda`` the east longitude,
-    and ``theta`` the Doodson argument approximated as GMST (the
-    full argument includes ~arcsec corrections that are well below the
-    sub-mm amplitudes).
+    Full 31-row table from IERS Conventions 2010 (Mathews/Dehant/Gipson
+    1997), ported from the reference Fortran ``STEP2DIU.F``. Peak
+    contribution is the K1 row at ~12 mm, almost all of which is
+    cancelled by the step-1 nominal K1 amplitude; what's left is the
+    in-phase / out-of-phase anelasticity correction (sub-mm to a few
+    mm depending on row, latitude and epoch).
 
     Parameters
     ----------
@@ -273,22 +437,52 @@ def step2_k1_displacement(
     ndarray
         ``(3,)`` ECEF displacement in meters.
     """
-    from .geodesy import ecef_to_lla, enu_to_ecef
-    station = np.asarray(station_ecef, dtype=float)
-    lat_deg, lon_deg, _ = ecef_to_lla(*station)
-    lat = math.radians(lat_deg)
-    lon = math.radians(lon_deg)
-    jd = _julian_date(epoch)
-    theta = _gmst_rad(jd) + lon
+    return _step2_diurnal_core(
+        station_ecef, _t_centuries_tt(epoch), _fractional_hours_ut(epoch)
+    )
 
-    dR_K1 = -0.253e-3
-    dT_K1 = -0.081e-3
-    d_up = dR_K1 * math.sin(2.0 * lat) * math.sin(theta)
-    d_north = dT_K1 * math.cos(2.0 * lat) * math.sin(theta)
-    d_east = dT_K1 * math.sin(lat) * math.cos(theta)
 
-    enu = np.array([d_east, d_north, d_up])
-    return enu_to_ecef(enu, station) - station
+def step2_long_period_displacement(
+    station_ecef: np.ndarray,
+    epoch: "datetime | np.datetime64",
+) -> np.ndarray:
+    """Step-2 frequency-dependent correction in the long-period band.
+
+    Full 5-row table from IERS Conventions 2010 (Mathews/Dehant/Gipson
+    1997), ported from the reference Fortran ``STEP2LON.F``. Captures
+    the Mf, Mm, Ssa annual and semi-annual zonal contributions, each
+    well under 1 mm amplitude.
+
+    Parameters
+    ----------
+    station_ecef:
+        ``(3,)`` ECEF station position in meters.
+    epoch:
+        Observation epoch (``datetime`` or ``numpy.datetime64``).
+
+    Returns
+    -------
+    ndarray
+        ``(3,)`` ECEF displacement in meters. The east component is zero
+        in this band.
+    """
+    return _step2_long_period_core(station_ecef, _t_centuries_tt(epoch))
+
+
+def step2_displacement(
+    station_ecef: np.ndarray,
+    epoch: "datetime | np.datetime64",
+) -> np.ndarray:
+    """Total step-2 displacement: diurnal + long-period bands.
+
+    Equivalent to summing :func:`step2_diurnal_displacement` and
+    :func:`step2_long_period_displacement`; the convenience wrapper
+    matches the structure of the IERS reference ``DEHANTTIDEINEL.F``
+    which calls STEP2DIU followed by STEP2LON and accumulates both.
+    """
+    return step2_diurnal_displacement(station_ecef, epoch) + step2_long_period_displacement(
+        station_ecef, epoch
+    )
 
 
 def pole_tide_displacement(
@@ -372,6 +566,8 @@ __all__ = [
     "moon_position_ecef",
     "pole_tide_displacement",
     "solid_earth_tide_displacement",
-    "step2_k1_displacement",
+    "step2_diurnal_displacement",
+    "step2_displacement",
+    "step2_long_period_displacement",
     "sun_position_ecef",
 ]
