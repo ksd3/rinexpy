@@ -14,8 +14,11 @@ to make a single ``xarray.Dataset`` worthwhile.
 from __future__ import annotations
 
 import logging
+import math
 from datetime import datetime
 from typing import Any
+
+import numpy as np
 
 from ._common import fortran_float
 from ._io import opener
@@ -226,8 +229,6 @@ def apply_antex_pcv(
 
             corrected = observation - apply_antex_pcv(ant, "G01", el, az_deg=az)
     """
-    import numpy as np
-
     f_entry = entry.get("frequencies", {}).get(freq_id)
     if f_entry is None:
         return 0.0
@@ -264,8 +265,6 @@ def _bilinear(x_axis, y_axis, grid, x: float, y: float) -> float:
     Used by :func:`apply_antex_pcv` for the 2-D PCV table; kept as a
     private helper because the only consumer is right above.
     """
-    import numpy as np
-
     x_idx = int(np.searchsorted(x_axis, x))
     x_idx = max(1, min(x_axis.size - 1, x_idx))
     x0, x1 = x_axis[x_idx - 1], x_axis[x_idx]
@@ -285,4 +284,55 @@ def _bilinear(x_axis, y_axis, grid, x: float, y: float) -> float:
     return float(v0 * (1 - wx) + v1 * wx)
 
 
-__all__ = ["apply_antex_pcv", "find_antenna", "load_antex"]
+def pcv_corrections_for_observations(
+    entry: dict[str, Any],
+    freq_id: str,
+    sv_ecef: np.ndarray,
+    station_ecef: np.ndarray,
+) -> np.ndarray:
+    """Per-satellite ANTEX PCV correction array for a single epoch.
+
+    For each satellite, computes the elevation and azimuth at the
+    station, looks up the ANTEX PCV for that geometry, and returns
+    a vector that can be subtracted from the pseudorange / carrier
+    phase to remove the antenna phase-center variation.
+
+    Parameters
+    ----------
+    entry:
+        ANTEX antenna entry (output of :func:`find_antenna`).
+    freq_id:
+        Frequency label, e.g. ``"G01"``, ``"G02"`` for GPS L1 / L2.
+    sv_ecef:
+        ``(n_sv, 3)`` satellite ECEF positions in meters.
+    station_ecef:
+        ``(3,)`` station ECEF position in meters.
+
+    Returns
+    -------
+    ndarray
+        ``(n_sv,)`` PCV correction in meters. Subtract from each
+        observation: ``pr_corr = pr - pcv``.
+    """
+    from .geodesy import ecef_to_enu
+    sv = np.asarray(sv_ecef, dtype=float)
+    station = np.asarray(station_ecef, dtype=float)
+    if sv.ndim == 1:
+        sv = sv.reshape(1, 3)
+    out = np.zeros(sv.shape[0])
+    for i, p in enumerate(sv):
+        enu = ecef_to_enu(p, station)
+        e, n, u = float(enu[0]), float(enu[1]), float(enu[2])
+        hor = math.hypot(e, n)
+        el = math.degrees(math.atan2(u, hor))
+        az = math.degrees(math.atan2(e, n)) % 360.0
+        out[i] = apply_antex_pcv(entry, freq_id, el, az_deg=az)
+    return out
+
+
+__all__ = [
+    "apply_antex_pcv",
+    "find_antenna",
+    "load_antex",
+    "pcv_corrections_for_observations",
+]
