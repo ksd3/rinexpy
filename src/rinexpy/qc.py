@@ -441,6 +441,165 @@ def hatch_filter(
     return out
 
 
+def repair_slips(
+    phase_cycles: np.ndarray,
+    slips: np.ndarray,
+    *,
+    fit_window: int = 5,
+) -> np.ndarray:
+    """Repair integer cycle slips in a single-signal phase series.
+
+    For each slip flagged in ``slips``, a least-squares line is fit to
+    the last ``fit_window`` pre-slip epochs, the expected phase at the
+    slip epoch is predicted by extrapolation, and the rounded integer
+    residual (in cycles) is subtracted from all subsequent phase
+    samples. The detector decides where the slips are; this routine
+    is just the integer-jump correction.
+
+    Reliability notes:
+
+    - The linear-extrapolation model breaks down at low elevation where
+      the ionosphere accelerates. For long-arc repair, prefer a dual-
+      frequency MW+GF estimate (see :func:`repair_slips_dual`).
+    - Slips closer together than ``fit_window`` epochs are repaired
+      against the already-repaired segment, which works only if the
+      first slip was estimated correctly.
+
+    Parameters
+    ----------
+    phase_cycles:
+        ``(n_epoch,)`` carrier phase in cycles. NaN where there's no
+        observation.
+    slips:
+        ``(n_epoch,)`` bool mask. ``True`` at every epoch where a slip
+        was detected (typically the output of :func:`detect_slips_mw`
+        or similar).
+    fit_window:
+        Number of pre-slip epochs used for the extrapolation fit.
+        Default 5; use larger for cleaner data, smaller for fast-
+        varying conditions.
+
+    Returns
+    -------
+    ndarray
+        ``(n_epoch,)`` repaired phase in cycles. Same shape and NaN
+        pattern as the input; finite epochs after a detected slip are
+        shifted by an integer.
+    """
+    phi = np.asarray(phase_cycles, dtype=float).copy()
+    if phi.size == 0:
+        return phi
+    slips = np.asarray(slips, dtype=bool)
+    slip_indices = np.flatnonzero(slips)
+    for k in slip_indices:
+        if k < 2:
+            continue
+        pre_end = k - 1
+        pre_start = max(0, pre_end - fit_window + 1)
+        x = np.arange(pre_start, pre_end + 1, dtype=float)
+        y = phi[pre_start : pre_end + 1]
+        finite = np.isfinite(y)
+        if finite.sum() < 2:
+            continue
+        slope, intercept = np.polyfit(x[finite], y[finite], 1)
+        if not np.isfinite(phi[k]):
+            continue
+        predicted = slope * k + intercept
+        delta = round(phi[k] - predicted)
+        if delta != 0:
+            tail = np.isfinite(phi[k:])
+            phi[k:] = np.where(tail, phi[k:] - delta, phi[k:])
+    return phi
+
+
+def repair_slips_dual(
+    phi1_cycles: np.ndarray,
+    phi2_cycles: np.ndarray,
+    p1_m: np.ndarray,
+    p2_m: np.ndarray,
+    slips: np.ndarray,
+    *,
+    f1: float = _F_L1,
+    f2: float = _F_L2,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Dual-frequency cycle slip repair via MW + GF jumps.
+
+    At each flagged slip the joint integer pair ``(dN1, dN2)`` is
+    solved from
+
+        dN_WL = round(MW[k] - MW[k-1])          # N1 - N2 jump
+        dN_GF = round((GF[k] - GF[k-1]) / lambda_pseudo)
+
+    where the GF combination ``lambda1*phi1 - lambda2*phi2`` gives a
+    second constraint that distinguishes ``(dN1, dN2)`` pairs sharing
+    the same wide-lane difference. The local pseudo-wavelength here
+    is the GF wavelength ``lambda1 - lambda2`` taken as a proxy.
+
+    Reliability: works well when both MW and GF noise levels are at
+    the few-tenths-of-a-cycle scale; ambiguous when the slip is very
+    small (sub-cycle drift) or both signals slipped by very large
+    integers in opposite directions.
+
+    Parameters
+    ----------
+    phi1_cycles, phi2_cycles:
+        ``(n_epoch,)`` carrier phases on the two frequencies.
+    p1_m, p2_m:
+        ``(n_epoch,)`` code pseudoranges on the same two frequencies.
+    slips:
+        ``(n_epoch,)`` bool slip mask.
+    f1, f2:
+        Carrier frequencies in Hz. Defaults are GPS L1 and L2.
+
+    Returns
+    -------
+    (phi1_repaired, phi2_repaired):
+        Both shaped ``(n_epoch,)`` and unit-matched to the inputs.
+    """
+    phi1 = np.asarray(phi1_cycles, dtype=float).copy()
+    phi2 = np.asarray(phi2_cycles, dtype=float).copy()
+    p1 = np.asarray(p1_m, dtype=float)
+    p2 = np.asarray(p2_m, dtype=float)
+    slips = np.asarray(slips, dtype=bool)
+    lam1 = _C / f1
+    lam2 = _C / f2
+    slip_indices = np.flatnonzero(slips)
+    for k in slip_indices:
+        if k < 1:
+            continue
+        # MW at epoch k and k-1 (using current phi1/phi2 so previous
+        # repairs propagate).
+        mw_k = (phi1[k] - phi2[k]) - (f1 - f2) / (f1 + f2) * (p1[k] / lam1 + p2[k] / lam2)
+        mw_p = (phi1[k - 1] - phi2[k - 1]) - (f1 - f2) / (f1 + f2) * (
+            p1[k - 1] / lam1 + p2[k - 1] / lam2
+        )
+        gf_k = lam1 * phi1[k] - lam2 * phi2[k]
+        gf_p = lam1 * phi1[k - 1] - lam2 * phi2[k - 1]
+        if not (np.isfinite(mw_k) and np.isfinite(mw_p) and np.isfinite(gf_k) and np.isfinite(gf_p)):
+            continue
+        dN_WL = round(mw_k - mw_p)
+        # GF jump in cycles of the GF "wavelength" (lam1 - lam2). This is
+        # an approximation; the exact GF integer mapping depends on
+        # ionospheric drift between the bracket epochs.
+        dN_GF_m = gf_k - gf_p
+        # Joint linear inversion for (dN1, dN2):
+        #   dN_WL    = dN1 - dN2
+        #   dN_GF_m  = lam1 * dN1 - lam2 * dN2
+        # Substituting dN2 = dN1 - dN_WL into the second eq:
+        #   dN_GF_m = (lam1 - lam2) * dN1 + lam2 * dN_WL
+        # =>  dN1 = (dN_GF_m - lam2 * dN_WL) / (lam1 - lam2)
+        #     dN2 = dN1 - dN_WL
+        dN1 = round((dN_GF_m - lam2 * dN_WL) / (lam1 - lam2))
+        dN2 = dN1 - dN_WL
+        if dN1 != 0:
+            tail = np.isfinite(phi1[k:])
+            phi1[k:] = np.where(tail, phi1[k:] - dN1, phi1[k:])
+        if dN2 != 0:
+            tail = np.isfinite(phi2[k:])
+            phi2[k:] = np.where(tail, phi2[k:] - dN2, phi2[k:])
+    return phi1, phi2
+
+
 __all__ = [
     "detect_slips",
     "detect_slips_geometry_free",
@@ -450,4 +609,6 @@ __all__ = [
     "mp1",
     "mp2",
     "multipath_rms",
+    "repair_slips",
+    "repair_slips_dual",
 ]
