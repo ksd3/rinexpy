@@ -121,6 +121,8 @@ def decode_message(msg_id: int, body: bytes) -> dict[str, Any]:
         1045: _decode_1045,
         1046: _decode_1046,
         1230: _decode_1230,
+        1057: _decode_1057,
+        1058: _decode_1058,
     }
     if msg_id in decoders:
         return decoders[msg_id](body)
@@ -743,6 +745,114 @@ _MSM_SYSTEM_LETTER: dict[int, str] = {
     1127: "C",
     1137: "I",
 }
+
+
+def _decode_ssr_header(body: bytes, *, has_datum: bool) -> tuple[dict[str, Any], int, int]:
+    """Decode the common SSR header. Returns (header, bit_cursor, n_sats).
+
+    The 1057-style orbit message has an extra 1-bit ``satellite reference
+    datum`` field after the IOD SSR; clock-only / bias-only messages
+    omit it. The shared layout is: DF002 (12 bits, already passed as
+    msg_id), DF385 epoch time (20 bits), DF391 update interval (4 bits),
+    DF388 multiple-message indicator (1 bit), DF394 IOD SSR (4 bits),
+    DF395 provider ID (16 bits), DF396 solution ID (4 bits), then the
+    optional 1-bit reference datum, then DF387 number of satellites
+    (6 bits).
+    """
+    bit = 12
+    epoch_time = _bits(body, bit, 20); bit += 20
+    update_interval = _bits(body, bit, 4); bit += 4
+    multiple_msg = _bits(body, bit, 1); bit += 1
+    iod_ssr = _bits(body, bit, 4); bit += 4
+    provider_id = _bits(body, bit, 16); bit += 16
+    solution_id = _bits(body, bit, 4); bit += 4
+    if has_datum:
+        ref_datum = _bits(body, bit, 1); bit += 1
+    else:
+        ref_datum = None
+    n_sats = _bits(body, bit, 6); bit += 6
+    header = {
+        "epoch_time_s": epoch_time,
+        "update_interval_index": update_interval,
+        "multiple_message": bool(multiple_msg),
+        "iod_ssr": iod_ssr,
+        "provider_id": provider_id,
+        "solution_id": solution_id,
+        "ref_datum": ref_datum,
+        "n_sats": n_sats,
+    }
+    return header, bit, n_sats
+
+
+def _decode_1057(body: bytes) -> dict[str, Any]:
+    """SSR GPS orbit corrections (RTCM 3.x message 1057).
+
+    Returns the common SSR header plus a per-satellite list of:
+
+    - ``prn`` (1-32 GPS PRN)
+    - ``iode``: GPS IODE this correction applies to
+    - ``delta_radial_m``, ``delta_along_track_m``, ``delta_cross_track_m``
+    - ``dot_delta_radial_m_per_s``, ``dot_delta_along_track_m_per_s``,
+      ``dot_delta_cross_track_m_per_s``
+
+    Scaling per the RTCM 3.x spec: delta radial is 0.1 mm/LSB (22 bits
+    signed), the two transverse deltas are 0.4 mm/LSB (20 bits signed),
+    and their rate counterparts are 0.001 mm/s and 0.004 mm/s
+    respectively.
+    """
+    header, bit, n_sats = _decode_ssr_header(body, has_datum=True)
+    sats: list[dict[str, Any]] = []
+    for _ in range(n_sats):
+        prn = _bits(body, bit, 6); bit += 6
+        iode = _bits(body, bit, 8); bit += 8
+        d_radial = _bits(body, bit, 22, signed=True); bit += 22
+        d_along = _bits(body, bit, 20, signed=True); bit += 20
+        d_cross = _bits(body, bit, 20, signed=True); bit += 20
+        dot_radial = _bits(body, bit, 21, signed=True); bit += 21
+        dot_along = _bits(body, bit, 19, signed=True); bit += 19
+        dot_cross = _bits(body, bit, 19, signed=True); bit += 19
+        sats.append({
+            "prn": prn,
+            "iode": iode,
+            "delta_radial_m": d_radial * 1e-4,
+            "delta_along_track_m": d_along * 4e-4,
+            "delta_cross_track_m": d_cross * 4e-4,
+            "dot_delta_radial_m_per_s": dot_radial * 1e-6,
+            "dot_delta_along_track_m_per_s": dot_along * 4e-6,
+            "dot_delta_cross_track_m_per_s": dot_cross * 4e-6,
+        })
+    return {"msg_id": 1057, "header": header, "satellites": sats}
+
+
+def _decode_1058(body: bytes) -> dict[str, Any]:
+    """SSR GPS clock corrections (RTCM 3.x message 1058).
+
+    Returns the common SSR header plus a per-satellite list of:
+
+    - ``prn``
+    - ``c0_m``: constant clock correction in meters (22 bits signed,
+      0.1 mm/LSB)
+    - ``c1_m_per_s``: linear rate (21 bits signed, 0.001 mm/s/LSB)
+    - ``c2_m_per_s2``: quadratic acceleration (27 bits signed,
+      2e-5 mm/s^2 LSB)
+
+    The polynomial gives the satellite-clock correction at time t as
+    ``c0 + c1 * (t - t_0) + c2 * (t - t_0)^2`` (in meters of range).
+    """
+    header, bit, n_sats = _decode_ssr_header(body, has_datum=False)
+    sats: list[dict[str, Any]] = []
+    for _ in range(n_sats):
+        prn = _bits(body, bit, 6); bit += 6
+        c0 = _bits(body, bit, 22, signed=True); bit += 22
+        c1 = _bits(body, bit, 21, signed=True); bit += 21
+        c2 = _bits(body, bit, 27, signed=True); bit += 27
+        sats.append({
+            "prn": prn,
+            "c0_m": c0 * 1e-4,
+            "c1_m_per_s": c1 * 1e-6,
+            "c2_m_per_s2": c2 * 2e-8,
+        })
+    return {"msg_id": 1058, "header": header, "satellites": sats}
 
 
 __all__ = ["PREAMBLE", "crc24q", "decode_message", "iter_messages"]
