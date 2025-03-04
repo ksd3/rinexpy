@@ -219,12 +219,177 @@ def decode_has_clock_full(body: bytes, bit: int, mask: dict[str, Any]) -> dict[s
     }
 
 
+def decode_has_clock_subset(body: bytes, bit: int, mask: dict[str, Any]) -> dict[str, Any]:
+    """Decode an MT-4 HAS Clock Subset body.
+
+    Layout (HAS SDD v1.0 Section 8.2.5):
+
+        ValidityIntervalIndex (4 bits)
+        GNSSSubsetMask (4 bits)            -- which GNSS appear in this MT-4
+        For each GNSS in the subset mask:
+            DeltaClockMultiplier (2 bits)
+            SatelliteSubsetMask (40 bits)  -- subset of MT-1's sat mask
+            For each masked satellite:
+                DeltaClockC0 (13 bits signed, 0.0025 m * multiplier)
+
+    Unlike MT 3, MT 4 carries its own per-message GNSS / satellite
+    subset masks (which must be subsets of the MT-1 master mask).
+    """
+    valid_idx = _bits(body, bit, 4); bit += 4
+    gnss_subset = _bits(body, bit, 4); bit += 4
+    multipliers: dict[int, int] = {}
+    per_gnss: list[dict[str, Any]] = []
+    out_sats: list[dict[str, Any]] = []
+    for gnss_bit in range(4):
+        if not (gnss_subset >> (3 - gnss_bit)) & 1:
+            continue
+        m = _bits(body, bit, 2); bit += 2
+        mult = [1, 2, 4, 8][m]
+        sat_mask = _bits(body, bit, 40); bit += 40
+        sats = [i + 1 for i in range(40) if (sat_mask >> (39 - i)) & 1]
+        multipliers[gnss_bit] = mult
+        per_gnss.append({
+            "gnss_id": gnss_bit,
+            "gnss_name": HAS_GNSS_NAMES.get(gnss_bit, f"GNSS_{gnss_bit}"),
+            "satellites": sats,
+            "multiplier": mult,
+        })
+        for sat in sats:
+            c0 = _bits(body, bit, 13, signed=True); bit += 13
+            out_sats.append({
+                "gnss_id": gnss_bit,
+                "gnss_name": HAS_GNSS_NAMES.get(gnss_bit, f"GNSS_{gnss_bit}"),
+                "prn": sat,
+                "delta_clock_c0_m": c0 * 0.0025 * mult,
+                "multiplier": mult,
+            })
+    return {
+        "validity_interval_s": HAS_VALIDITY_S.get(valid_idx, 0),
+        "gnss_subset": per_gnss,
+        "satellites": out_sats,
+    }
+
+
+def _iter_cells(mask: dict[str, Any]) -> list[tuple[int, int, int]]:
+    """Iterate (gnss_id, prn, signal_index) tuples covered by ``mask``.
+
+    Honors the per-GNSS cell mask if present, otherwise emits the full
+    Cartesian product of (satellites, signals) for that GNSS.
+    """
+    out: list[tuple[int, int, int]] = []
+    for ge in mask["gnss_entries"]:
+        sats = ge["satellites"]
+        sigs = ge["signals"]
+        cells = ge.get("cell_mask")
+        if cells is None:
+            for sat in sats:
+                for sig in sigs:
+                    out.append((ge["gnss_id"], sat, sig))
+        else:
+            for i, sat in enumerate(sats):
+                for j, sig in enumerate(sigs):
+                    if cells[i][j]:
+                        out.append((ge["gnss_id"], sat, sig))
+    return out
+
+
+def decode_has_code_bias(body: bytes, bit: int, mask: dict[str, Any]) -> dict[str, Any]:
+    """Decode an MT-5 HAS Code Bias body.
+
+    Layout (HAS SDD v1.0 Section 8.2.6):
+
+        ValidityIntervalIndex (4 bits)
+        For each (GNSS, satellite, signal) cell covered by the mask
+        (in the iteration order produced by :func:`_iter_cells`):
+            CodeBias (11 bits signed, 0.01 m / LSB)
+    """
+    valid_idx = _bits(body, bit, 4); bit += 4
+    out: list[dict[str, Any]] = []
+    for gnss_id, prn, sig in _iter_cells(mask):
+        b = _bits(body, bit, 11, signed=True); bit += 11
+        out.append({
+            "gnss_id": gnss_id,
+            "gnss_name": HAS_GNSS_NAMES.get(gnss_id, f"GNSS_{gnss_id}"),
+            "prn": prn,
+            "signal_index": sig,
+            "code_bias_m": b * 0.01,
+        })
+    return {
+        "validity_interval_s": HAS_VALIDITY_S.get(valid_idx, 0),
+        "biases": out,
+    }
+
+
+def decode_has_phase_bias(body: bytes, bit: int, mask: dict[str, Any]) -> dict[str, Any]:
+    """Decode an MT-6 HAS Phase Bias body.
+
+    Layout (HAS SDD v1.0 Section 8.2.7):
+
+        ValidityIntervalIndex (4 bits)
+        For each (GNSS, satellite, signal) cell covered by the mask:
+            PhaseBias (11 bits signed, 0.01 cycles / LSB)
+            PhaseDiscontinuityIndicator (2 bits)
+
+    The discontinuity indicator is the SSR-style flag that increments
+    each time the satellite's phase reference resets; the consumer
+    uses it to know when to re-initialize integer ambiguities.
+    """
+    valid_idx = _bits(body, bit, 4); bit += 4
+    out: list[dict[str, Any]] = []
+    for gnss_id, prn, sig in _iter_cells(mask):
+        b = _bits(body, bit, 11, signed=True); bit += 11
+        disc = _bits(body, bit, 2); bit += 2
+        out.append({
+            "gnss_id": gnss_id,
+            "gnss_name": HAS_GNSS_NAMES.get(gnss_id, f"GNSS_{gnss_id}"),
+            "prn": prn,
+            "signal_index": sig,
+            "phase_bias_cycles": b * 0.01,
+            "discontinuity_indicator": disc,
+        })
+    return {
+        "validity_interval_s": HAS_VALIDITY_S.get(valid_idx, 0),
+        "biases": out,
+    }
+
+
+def decode_has_ura(body: bytes, bit: int, mask: dict[str, Any]) -> dict[str, Any]:
+    """Decode an MT-7 HAS User Range Accuracy body.
+
+    Layout (HAS SDD v1.0 Section 8.2.8):
+
+        ValidityIntervalIndex (4 bits)
+        For each masked satellite:
+            URA (4 bits)
+
+    The URA value is an index into the SSR URA table (RTCM 3.x table
+    3.5-87); see the SDD for the mapping to a 1-sigma range error.
+    """
+    valid_idx = _bits(body, bit, 4); bit += 4
+    out: list[dict[str, Any]] = []
+    for ge in mask["gnss_entries"]:
+        for sat in ge["satellites"]:
+            u = _bits(body, bit, 4); bit += 4
+            out.append({
+                "gnss_id": ge["gnss_id"],
+                "gnss_name": ge["gnss_name"],
+                "prn": sat,
+                "ura_index": u,
+            })
+    return {
+        "validity_interval_s": HAS_VALIDITY_S.get(valid_idx, 0),
+        "satellites": out,
+    }
+
+
 def decode_has_message(body: bytes, mask: dict[str, Any] | None = None) -> dict[str, Any]:
     """Decode a complete HAS Message: header + MT-specific payload.
 
     The mask (decoded from a prior MT-1 message with a matching
-    ``mask_id``) is required to interpret orbit / clock / bias messages;
-    pass ``None`` if you're decoding the mask itself.
+    ``mask_id``) is required to interpret MT 2, 3, 5, 6, 7 (every
+    payload that references the master mask's satellite / signal lists).
+    MT 1 (mask) and MT 4 (clock subset, which carries its own per-message
+    mask) can be decoded without a prior mask.
     """
     header, bit = decode_has_header(body)
     mt = header["message_type"]
@@ -239,6 +404,20 @@ def decode_has_message(body: bytes, mask: dict[str, Any] | None = None) -> dict[
         if mask is None:
             raise ValueError("MT-3 (clock) requires a decoded mask (MT-1) first")
         payload = decode_has_clock_full(body, bit, mask)
+    elif mt == 4:
+        payload = decode_has_clock_subset(body, bit, mask if mask is not None else {"gnss_entries": []})
+    elif mt == 5:
+        if mask is None:
+            raise ValueError("MT-5 (code bias) requires a decoded mask (MT-1) first")
+        payload = decode_has_code_bias(body, bit, mask)
+    elif mt == 6:
+        if mask is None:
+            raise ValueError("MT-6 (phase bias) requires a decoded mask (MT-1) first")
+        payload = decode_has_phase_bias(body, bit, mask)
+    elif mt == 7:
+        if mask is None:
+            raise ValueError("MT-7 (URA) requires a decoded mask (MT-1) first")
+        payload = decode_has_ura(body, bit, mask)
     else:
         payload = {"unsupported_message_type": mt}
     return {"header": header, "payload": payload}
@@ -248,8 +427,12 @@ __all__ = [
     "HAS_GNSS_NAMES",
     "HAS_VALIDITY_S",
     "decode_has_clock_full",
+    "decode_has_clock_subset",
+    "decode_has_code_bias",
     "decode_has_header",
     "decode_has_mask",
     "decode_has_message",
     "decode_has_orbit",
+    "decode_has_phase_bias",
+    "decode_has_ura",
 ]
