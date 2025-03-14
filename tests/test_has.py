@@ -168,10 +168,12 @@ def test_orbit_without_mask_raises():
 
 
 def test_unsupported_mt_returns_marker():
+    """MT 0 is not defined in the SDD; the dispatcher should return a
+    marker dict rather than raise."""
     body = bytearray()
-    _build_header(body, mt=7)
+    _build_header(body, mt=0)
     msg = decode_has_message(bytes(body))
-    assert msg["payload"]["unsupported_message_type"] == 7
+    assert msg["payload"]["unsupported_message_type"] == 0
 
 
 def test_mask_with_cell_mask_flag():
