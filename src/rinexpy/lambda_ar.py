@@ -98,11 +98,35 @@ def bootstrap(L: np.ndarray, a_float: np.ndarray) -> np.ndarray:
     return a_int
 
 
+class ILSAborted(RuntimeError):
+    """Raised when the integer search exceeds ``max_nodes`` or
+    ``max_seconds`` before completing.
+
+    The exception carries the best candidates discovered so far in the
+    ``candidates`` and ``sq_errors`` attributes (same shape contract
+    as :func:`integer_least_squares` would have returned on success),
+    so callers can apply a soft ratio test on the partial result if
+    they choose.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        candidates: np.ndarray,
+        sq_errors: np.ndarray,
+    ):
+        super().__init__(message)
+        self.candidates = candidates
+        self.sq_errors = sq_errors
+
+
 def integer_least_squares(
     a_float: np.ndarray,
     Q: np.ndarray,
     *,
     n_cands: int = 2,
+    max_nodes: int = 100_000,
+    max_seconds: float | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Find the ``n_cands`` best integer vectors near ``a_float``.
 
@@ -115,6 +139,14 @@ def integer_least_squares(
     n_cands:
         Number of best candidates to return (default 2 — enough for the
         ratio test).
+    max_nodes:
+        Hard cap on the total number of recursive search nodes visited.
+        Default ``100_000``, which is generous for n <= 10 well-
+        conditioned problems and bounds the worst case for near-
+        singular ``Q``. Raises :class:`ILSAborted` if exceeded.
+    max_seconds:
+        Optional wall-clock budget. If exceeded the search aborts with
+        :class:`ILSAborted` carrying the best partial result.
 
     Returns
     -------
@@ -124,76 +156,126 @@ def integer_least_squares(
         corresponding ``(n_cands,)`` array of L^T D^-1 L weighted square
         residuals. ``L`` is the LDL factor (returned for inspection).
 
+    Raises
+    ------
+    ILSAborted
+        When the node or wall-clock budget is exhausted. The exception
+        instance carries the best (partial) candidates so the caller
+        can choose to accept them with a manual ratio test.
+
     Notes
     -----
-    Uses a depth-first branch-and-bound search bounded by the current
-    best squared error. Decorrelation is intentionally skipped here
-    (we compute ILS in the original space); for very correlated
-    ambiguity sets, see :func:`decorrelate` to apply a Z-transform first.
+    Branch-and-bound search seeded with the bootstrap candidate as the
+    initial bound. Decorrelation is intentionally skipped here (ILS is
+    computed in the original space); for very correlated ambiguity
+    sets, see :func:`decorrelate` to apply a Z-transform first.
     """
+    import time
+
     L, D = ldl(Q)
     n = a_float.size
     boot = bootstrap(L, a_float)
 
-    # Squared residual upper bound: start with the bootstrap value.
+    # Best candidates so far, sorted ascending by squared error. Left
+    # empty initially; the depth-first traversal will visit the
+    # bootstrap path first and add it as the first complete candidate,
+    # at which point the bound starts to tighten naturally.
     cands: list[tuple[float, np.ndarray]] = []
+    seen_keys: set[tuple[int, ...]] = set()
+    state = {
+        "bound": float("inf"),
+        "nodes": 0,
+        "aborted_reason": None,
+        "t_start": time.monotonic() if max_seconds is not None else None,
+    }
 
     def conditional(idx: int, current: np.ndarray) -> float:
-        """Return the conditional mean of a_float[idx] given a_int[idx+1:]."""
+        """Conditional mean of a_float[idx] given a_int[idx+1:]."""
         c = a_float[idx]
         for j in range(idx + 1, n):
             c -= L[j, idx] * (current[j] - a_float[j])
         return c
 
-    def search(idx: int, current: np.ndarray, residual_sq: float) -> None:
+    def search(idx: int, current: np.ndarray, residual_sq: float) -> bool:
         """Recursive depth-first ILS search.
 
-        Keeps the top ``n_cands`` complete integer vectors by squared
-        error. The branch-and-bound prunes a partial path only once we
-        already have ``n_cands`` candidates AND the partial residual
-        already exceeds the worst kept.
+        Returns False if the search was aborted by a budget limit so
+        the caller can unwind early. Updates ``state`` in place to
+        keep the worst-kept residual as the live pruning bound.
         """
+        if state["aborted_reason"] is not None:
+            return False
+        state["nodes"] += 1
+        if state["nodes"] > max_nodes:
+            state["aborted_reason"] = f"max_nodes={max_nodes} exceeded"
+            return False
+        if state["t_start"] is not None:
+            if time.monotonic() - state["t_start"] > max_seconds:
+                state["aborted_reason"] = f"max_seconds={max_seconds} exceeded"
+                return False
+        if residual_sq >= state["bound"]:
+            return True
         if idx < 0:
+            key = tuple(int(v) for v in current)
+            if key in seen_keys:
+                return True
+            seen_keys.add(key)
             cands.append((residual_sq, current.copy().astype(int)))
             cands.sort(key=lambda x: x[0])
-            return
+            if len(cands) > n_cands * 4:
+                # Keep a small reserve past n_cands so noise in the
+                # sort doesn't drop a legitimate candidate.
+                for dropped in cands[n_cands * 4 :]:
+                    seen_keys.discard(tuple(int(v) for v in dropped[1]))
+                cands[:] = cands[: n_cands * 4]
+            if len(cands) >= n_cands:
+                state["bound"] = cands[n_cands - 1][0]
+            return True
         c = conditional(idx, current)
         center = int(np.round(c))
-        # Try integer offsets 0, +1, -1, +2, -2, ... around the
-        # conditional mean.
+        # Visit integers in increasing |delta| order: 0, +1, -1, +2, -2, ...
+        # Once the contribution from the level alone exceeds the bound,
+        # all further |k| do too, so we break the outer loop.
         for k in range(40):
+            any_in_bound = False
             for sign in (1, -1) if k > 0 else (1,):
                 cand = center + sign * k
                 delta = cand - c
                 contrib = delta * delta / D[idx]
                 new_sq = residual_sq + contrib
-                if (
-                    len(cands) >= n_cands * 4  # keep extra to prune duplicates
-                    and new_sq >= cands[-1][0]
-                ):
+                if new_sq >= state["bound"]:
                     continue
+                any_in_bound = True
                 current[idx] = cand
-                search(idx - 1, current, new_sq)
+                if not search(idx - 1, current, new_sq):
+                    return False
+            if not any_in_bound and k > 0:
+                break
+        return True
 
     search(n - 1, boot.astype(float).copy(), 0.0)
-    # Ensure the bootstrapped solution is at least considered.
-    cands.append((_squared_residual(boot, a_float, L, D), boot.copy()))
 
-    # Deduplicate by integer vector identity, then sort and truncate.
-    seen: set[tuple[int, ...]] = set()
-    unique: list[tuple[float, np.ndarray]] = []
+    # Already deduplicated by seen_keys during the search.
     cands.sort(key=lambda x: x[0])
-    for sq_val, vec in cands:
-        key = tuple(int(v) for v in vec)
-        if key in seen:
-            continue
-        seen.add(key)
-        unique.append((sq_val, vec))
-        if len(unique) >= n_cands:
-            break
+    cands = cands[:n_cands]
+    if not cands:
+        # The search budget cut us off before any complete path
+        # reached idx < 0; fall back to the bootstrap as the partial.
+        boot_int = boot.copy().astype(int)
+        boot_sq_now = _squared_residual(boot, a_float, L, D)
+        cands = [(boot_sq_now, boot_int)]
 
-    candidates = np.array([c[1] for c in unique], dtype=int)
-    sq_errors = np.array([c[0] for c in unique])
+    candidates = np.array([c[1] for c in cands], dtype=int)
+    sq_errors = np.array([c[0] for c in cands])
+
+    if state["aborted_reason"] is not None:
+        raise ILSAborted(
+            f"integer_least_squares: {state['aborted_reason']} "
+            f"after {state['nodes']} nodes",
+            candidates=candidates,
+            sq_errors=sq_errors,
+        )
+
     return candidates, sq_errors, L
 
 
@@ -217,6 +299,8 @@ def lambda_resolve(
     Q: np.ndarray,
     *,
     ratio_threshold: float = 3.0,
+    max_nodes: int = 100_000,
+    max_seconds: float | None = None,
 ) -> dict:
     """High-level LAMBDA wrapper: returns the integer fix and a ratio test.
 
@@ -229,15 +313,42 @@ def lambda_resolve(
     ratio_threshold:
         Minimum acceptable ratio of second-best to best squared error.
         Common values: 2 (looser) to 3 (tighter). Default 3.
+    max_nodes, max_seconds:
+        Forwarded to :func:`integer_least_squares` as budget guards.
+        On a near-singular ``Q`` the integer search can otherwise
+        explore exponentially many candidates; the budget bound makes
+        the call safe to use in long-running pipelines. When the
+        budget is exhausted, the result dict carries the best partial
+        candidates and ``accepted`` is set to False with
+        ``aborted=True``.
 
     Returns
     -------
     dict
         ``{"a_int": ndarray, "ratio": float, "accepted": bool,
-        "candidates": (k, n) ndarray, "sq_errors": (k,) ndarray}``.
-        ``accepted`` is True iff ``ratio >= ratio_threshold``.
+        "candidates": (k, n) ndarray, "sq_errors": (k,) ndarray,
+        "aborted": bool}``. ``accepted`` is True iff
+        ``ratio >= ratio_threshold`` AND the search ran to completion.
     """
-    cands, sq, _ = integer_least_squares(a_float, Q, n_cands=2)
+    aborted = False
+    try:
+        cands, sq, _ = integer_least_squares(
+            a_float, Q, n_cands=2,
+            max_nodes=max_nodes, max_seconds=max_seconds,
+        )
+    except ILSAborted as e:
+        cands = e.candidates
+        sq = e.sq_errors
+        aborted = True
+    if cands.size == 0:
+        return {
+            "a_int": np.zeros_like(a_float, dtype=int),
+            "ratio": 0.0,
+            "accepted": False,
+            "candidates": cands,
+            "sq_errors": sq,
+            "aborted": aborted,
+        }
     best = cands[0]
     if sq.size > 1 and sq[0] > 0:
         ratio = float(sq[1] / sq[0])
@@ -246,13 +357,15 @@ def lambda_resolve(
     return {
         "a_int": best,
         "ratio": ratio,
-        "accepted": ratio >= ratio_threshold,
+        "accepted": (not aborted) and ratio >= ratio_threshold,
         "candidates": cands,
         "sq_errors": sq,
+        "aborted": aborted,
     }
 
 
 __all__ = [
+    "ILSAborted",
     "bootstrap",
     "integer_least_squares",
     "lambda_resolve",
