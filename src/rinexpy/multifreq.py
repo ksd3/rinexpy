@@ -27,15 +27,20 @@ import numpy as np
 
 #: Speed of light, m/s.
 _C = 299_792_458.0
-#: GPS L1 / L2 frequencies (Hz).
+#: GPS L1 / L2 / L5 frequencies (Hz).
 F1 = 1.57542e9
 F2 = 1.22760e9
+F5 = 1.17645e9
 
 #: Carrier wavelengths (m).
 LAMBDA_L1 = _C / F1
 LAMBDA_L2 = _C / F2
+LAMBDA_L5 = _C / F5
 LAMBDA_WL = _C / (F1 - F2)
 LAMBDA_NL = _C / (F1 + F2)
+#: Extra-Wide-Lane wavelengths.
+LAMBDA_EWL_15 = _C / (F1 - F5)
+LAMBDA_EWL_25 = _C / (F2 - F5)
 
 
 def wide_lane_phase(phi1_cycles: np.ndarray, phi2_cycles: np.ndarray) -> np.ndarray:
@@ -390,18 +395,137 @@ def lambda_dual_freq(
     }
 
 
+def extra_wide_lane_phase(
+    phi2_cycles: np.ndarray, phi5_cycles: np.ndarray
+) -> np.ndarray:
+    """Extra-Wide-Lane (L2 - L5) carrier-phase combination in EWL cycles.
+
+    The EWL wavelength is ~5.86 m, which makes the integer
+    ``N_EWL = N2 - N5`` essentially trivial to resolve: one MW
+    sample is enough at any reasonable noise level.
+    """
+    return np.asarray(phi2_cycles) - np.asarray(phi5_cycles)
+
+
+def melbourne_wubbena_ewl(
+    phi2_cycles: np.ndarray,
+    phi5_cycles: np.ndarray,
+    p2_m: np.ndarray,
+    p5_m: np.ndarray,
+    *,
+    f2: float = F2,
+    f5: float = F5,
+) -> np.ndarray:
+    """L2/L5 Melbourne-Wuebbena combination in EWL cycles."""
+    lam2 = _C / f2
+    lam5 = _C / f5
+    phi_diff = np.asarray(phi2_cycles) - np.asarray(phi5_cycles)
+    code_term = (
+        (f2 - f5) / (f2 + f5)
+        * (np.asarray(p2_m) / lam2 + np.asarray(p5_m) / lam5)
+    )
+    return phi_diff - code_term
+
+
+def resolve_extra_wide_lane(
+    mw_ewl_cycles: np.ndarray,
+    *,
+    threshold_cycles: float = 0.25,
+) -> dict[str, np.ndarray]:
+    """Round the EWL MW combination to integer N_EWL and validate.
+
+    Returns dict with ``N_EWL`` (int array), ``fixed_mask``, and
+    ``fraction_fixed``. SVs whose |float - round| exceeds
+    ``threshold_cycles`` are flagged as not-fixed.
+    """
+    mw = np.asarray(mw_ewl_cycles, dtype=float)
+    n_ewl = np.round(np.where(np.isnan(mw), 0.0, mw)).astype(int)
+    fixed = np.isfinite(mw) & (np.abs(mw - n_ewl) <= threshold_cycles)
+    return {
+        "N_EWL": n_ewl,
+        "fixed_mask": fixed,
+        "fraction_fixed": float(np.mean(fixed)) if fixed.size else 0.0,
+    }
+
+
+def tcar_resolve(
+    phi1_cycles: np.ndarray,
+    phi2_cycles: np.ndarray,
+    phi5_cycles: np.ndarray,
+    p1_m: np.ndarray,
+    p2_m: np.ndarray,
+    p5_m: np.ndarray,
+    *,
+    f1: float = F1,
+    f2: float = F2,
+    f5: float = F5,
+    threshold_ewl: float = 0.25,
+    threshold_wl: float = 0.25,
+) -> dict[str, np.ndarray]:
+    """Three-Carrier Ambiguity Resolution (Forssell / Vollath 1997).
+
+    Cascade:
+
+    1. EWL (L2-L5) via MW: ~5.86 m wavelength, single-epoch fix.
+    2. WL (L1-L2) via MW: ~0.86 m wavelength.
+    3. NL bootstrap to recover N_L1, N_L2, N_L5 integer triples.
+
+    Returns dict with all three integer ambiguity vectors plus
+    per-stage and combined fixed masks.
+    """
+    mw_ewl = melbourne_wubbena_ewl(phi2_cycles, phi5_cycles, p2_m, p5_m, f2=f2, f5=f5)
+    ewl = resolve_extra_wide_lane(mw_ewl, threshold_cycles=threshold_ewl)
+    n_ewl = ewl["N_EWL"]
+    fixed_ewl = ewl["fixed_mask"]
+
+    # melbourne_wubbena() in this module returns meters; convert to WL
+    # cycles by dividing by LAMBDA_WL before rounding.
+    mw_wl_m = melbourne_wubbena(phi1_cycles, phi2_cycles, p1_m, p2_m)
+    mw_wl_cycles = mw_wl_m / LAMBDA_WL
+    n_wl = np.round(np.where(np.isnan(mw_wl_cycles), 0.0, mw_wl_cycles)).astype(int)
+    fixed_wl = np.isfinite(mw_wl_cycles) & (np.abs(mw_wl_cycles - n_wl) <= threshold_wl)
+
+    nl = narrow_lane_phase(phi1_cycles, phi2_cycles)
+    n_nl = np.round(np.where(np.isnan(nl), 0.0, nl)).astype(int)
+    # { N1 - N2 = N_WL,  N1 + N2 = N_NL } -> N1 = (N_NL + N_WL)/2
+    n_l1 = (n_nl + n_wl) // 2
+    n_l2 = n_l1 - n_wl
+    n_l5 = n_l2 - n_ewl
+
+    fixed = fixed_ewl & fixed_wl
+    return {
+        "N_EWL": n_ewl,
+        "N_WL": n_wl,
+        "N_L1": n_l1,
+        "N_L2": n_l2,
+        "N_L5": n_l5,
+        "fixed_mask_ewl": fixed_ewl,
+        "fixed_mask_wl": fixed_wl,
+        "fixed_mask": fixed,
+        "fraction_fixed": float(np.mean(fixed)) if fixed.size else 0.0,
+    }
+
+
 __all__ = [
     "F1",
     "F2",
+    "F5",
+    "LAMBDA_EWL_15",
+    "LAMBDA_EWL_25",
     "LAMBDA_L1",
     "LAMBDA_L2",
+    "LAMBDA_L5",
     "LAMBDA_NL",
     "LAMBDA_WL",
+    "extra_wide_lane_phase",
     "fix_iono_free_ambiguity",
     "lambda_dual_freq",
     "melbourne_wubbena",
+    "melbourne_wubbena_ewl",
     "narrow_lane_phase",
+    "resolve_extra_wide_lane",
     "resolve_wide_lane",
     "split_wl_into_l1_l2",
+    "tcar_resolve",
     "wide_lane_phase",
 ]
