@@ -34,6 +34,7 @@ nanobind_add_module(
     _ext
     STABLE_ABI                        # build against Python 3.12 stable ABI
     src/decode_obs_batch.cpp
+    src/crc24q.cpp
     src/bindings.cpp
 )
 

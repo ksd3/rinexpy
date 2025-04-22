@@ -5,12 +5,14 @@
 // Signature matches rinexpy._jit.decode_obs_batch so the dispatch code
 // in rinexpy.obs3 can swap implementations transparently.
 
+#include "crc24q.hpp"
 #include "decode_obs_batch.hpp"
 
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
 
 #include <cstdint>
+#include <cstring>
 #include <stdexcept>
 #include <vector>
 
@@ -50,8 +52,19 @@ decode_obs_batch_py(BytesArray flat, std::size_t n_lines, std::size_t n_obs) {
 
 }  // namespace
 
+namespace {
+
+// CRC-24Q wrapper: accepts a Python `bytes` and returns the 24-bit
+// checksum as a Python int. Matches rinexpy.rtcm3.crc24q.
+std::uint32_t crc24q_py(nb::bytes data) {
+    const auto* ptr = reinterpret_cast<const std::uint8_t*>(data.c_str());
+    return rinexpy_native::crc24q(ptr, data.size());
+}
+
+}  // namespace
+
 NB_MODULE(_ext, m) {
-    m.doc() = "Internal C++ acceleration for rinexpy.obs3.";
+    m.doc() = "Internal C++ acceleration for rinexpy.obs3 and rinexpy.rtcm3.";
 
     m.def(
         "decode_obs_batch",
@@ -64,4 +77,11 @@ NB_MODULE(_ext, m) {
         "Drop-in replacement for rinexpy._jit.decode_obs_batch with the "
         "same numerical contract: each cell is (value, LLI, SSI); empty "
         "cells become NaN.");
+
+    m.def(
+        "crc24q",
+        &crc24q_py,
+        nb::arg("data"),
+        "RTCM3 CRC-24Q over `data`. Polynomial 0x1864CFB, init 0, no\n"
+        "reflection, no final XOR. Returns the 24-bit checksum.");
 }
