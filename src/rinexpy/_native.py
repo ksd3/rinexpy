@@ -31,6 +31,13 @@ except ImportError:  # pragma: no cover
     _HAVE_NATIVE = False
     _decode_obs_batch = None  # type: ignore[assignment]
 
+# crc24q was added in rinexpy-native >= 0.2.0; older wheels that only
+# ship decode_obs_batch are still supported.
+try:
+    from rinexpy_native import crc24q as _crc24q  # type: ignore[attr-defined]
+except ImportError:  # pragma: no cover
+    _crc24q = None  # type: ignore[assignment]
+
 
 def is_available() -> bool:
     """Return ``True`` if ``rinexpy_native`` is importable in this Python."""
@@ -58,4 +65,25 @@ def decode_obs_batch(flat, n_lines: int, n_obs: int):
     return _decode_obs_batch(flat, n_lines, n_obs)
 
 
-__all__ = ["decode_obs_batch", "is_available", "is_enabled"]
+def have_crc24q() -> bool:
+    """Return ``True`` if the C++ ``crc24q`` kernel is available."""
+    return _crc24q is not None
+
+
+def crc24q(data: bytes) -> int:
+    """RTCM3 CRC-24Q via the C++ kernel; raises if the extension is missing."""
+    if _crc24q is None:
+        raise ImportError(
+            "rinexpy_native.crc24q is not installed; "
+            "rebuild rinexpy-native >= 0.2.0 via `uv sync --extra native`."
+        )
+    return _crc24q(data)
+
+
+__all__ = [
+    "crc24q",
+    "decode_obs_batch",
+    "have_crc24q",
+    "is_available",
+    "is_enabled",
+]
