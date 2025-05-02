@@ -5,6 +5,7 @@
 // Signature matches rinexpy._jit.decode_obs_batch so the dispatch code
 // in rinexpy.obs3 can swap implementations transparently.
 
+#include "bit_cursor.hpp"
 #include "crc24q.hpp"
 #include "decode_obs_batch.hpp"
 
@@ -61,6 +62,27 @@ std::uint32_t crc24q_py(nb::bytes data) {
     return rinexpy_native::crc24q(ptr, data.size());
 }
 
+// MSB-first bit extraction. Numerical contract identical to
+// rinexpy.rtcm3._bits: unsigned by default, sign-extend when
+// is_signed=True. n_bits must be in [0, 64]. Returns a Python int so
+// the unsigned-64-bit value range is representable losslessly.
+nb::object read_bits_py(nb::bytes data, std::size_t start_bit,
+                        unsigned n_bits, bool is_signed) {
+    if (n_bits > 64) {
+        throw std::invalid_argument("n_bits must be <= 64");
+    }
+    const auto* ptr = reinterpret_cast<const std::uint8_t*>(data.c_str());
+    const std::size_t n = data.size();
+    if (is_signed) {
+        const std::int64_t s = rinexpy_native::read_bits_signed(
+            ptr, n, start_bit, n_bits);
+        return nb::int_(s);
+    }
+    const std::uint64_t u = rinexpy_native::read_bits(
+        ptr, n, start_bit, n_bits);
+    return nb::int_(u);
+}
+
 }  // namespace
 
 NB_MODULE(_ext, m) {
@@ -84,4 +106,15 @@ NB_MODULE(_ext, m) {
         nb::arg("data"),
         "RTCM3 CRC-24Q over `data`. Polynomial 0x1864CFB, init 0, no\n"
         "reflection, no final XOR. Returns the 24-bit checksum.");
+
+    m.def(
+        "read_bits",
+        &read_bits_py,
+        nb::arg("data"),
+        nb::arg("start_bit"),
+        nb::arg("n_bits"),
+        nb::arg("is_signed") = false,
+        "MSB-first bit extraction. Reads `n_bits` (<=64) from `data` at\n"
+        "bit offset `start_bit`. When `is_signed=True`, sign-extends.\n"
+        "Bit-identical to rinexpy.rtcm3._bits.");
 }
