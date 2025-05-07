@@ -38,6 +38,12 @@ try:
 except ImportError:  # pragma: no cover
     _crc24q = None  # type: ignore[assignment]
 
+# read_bits was added alongside crc24q.
+try:
+    from rinexpy_native import read_bits as _read_bits  # type: ignore[attr-defined]
+except ImportError:  # pragma: no cover
+    _read_bits = None  # type: ignore[assignment]
+
 
 def is_available() -> bool:
     """Return ``True`` if ``rinexpy_native`` is importable in this Python."""
@@ -80,10 +86,28 @@ def crc24q(data: bytes) -> int:
     return _crc24q(data)
 
 
+def have_read_bits() -> bool:
+    """Return ``True`` if the C++ ``read_bits`` kernel is available."""
+    return _read_bits is not None
+
+
+def read_bits(data: bytes, start_bit: int, n_bits: int,
+              is_signed: bool = False) -> int:
+    """MSB-first bit extraction via the C++ kernel."""
+    if _read_bits is None:
+        raise ImportError(
+            "rinexpy_native.read_bits is not installed; "
+            "rebuild rinexpy-native >= 0.2.0 via `uv sync --extra native`."
+        )
+    return _read_bits(data, start_bit, n_bits, is_signed)
+
+
 __all__ = [
     "crc24q",
     "decode_obs_batch",
     "have_crc24q",
+    "have_read_bits",
     "is_available",
     "is_enabled",
+    "read_bits",
 ]
