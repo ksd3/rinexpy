@@ -8,9 +8,11 @@
 #include "bit_cursor.hpp"
 #include "crc24q.hpp"
 #include "decode_obs_batch.hpp"
+#include "lambda_ils.hpp"
 
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
+#include <nanobind/stl/tuple.h>
 
 #include <cstdint>
 #include <cstring>
@@ -60,6 +62,59 @@ namespace {
 std::uint32_t crc24q_py(nb::bytes data) {
     const auto* ptr = reinterpret_cast<const std::uint8_t*>(data.c_str());
     return rinexpy_native::crc24q(ptr, data.size());
+}
+
+// Helper: build a nanobind-owned 1-D / 2-D float64 / int64 ndarray
+// over a fresh heap allocation, with a deleter capsule so Python owns it.
+template <typename T>
+nb::ndarray<nb::numpy, T, nb::device::cpu>
+make_owned_1d(const std::vector<T>& v) {
+    T* data = new T[v.size()];
+    std::memcpy(data, v.data(), v.size() * sizeof(T));
+    std::size_t shape[1] = { v.size() };
+    nb::capsule owner(data, [](void* p) noexcept {
+        delete[] static_cast<T*>(p);
+    });
+    return nb::ndarray<nb::numpy, T, nb::device::cpu>(data, 1, shape, owner);
+}
+
+template <typename T>
+nb::ndarray<nb::numpy, T, nb::device::cpu>
+make_owned_2d(const std::vector<T>& v, std::size_t rows, std::size_t cols) {
+    T* data = new T[v.size()];
+    std::memcpy(data, v.data(), v.size() * sizeof(T));
+    std::size_t shape[2] = { rows, cols };
+    nb::capsule owner(data, [](void* p) noexcept {
+        delete[] static_cast<T*>(p);
+    });
+    return nb::ndarray<nb::numpy, T, nb::device::cpu>(data, 2, shape, owner);
+}
+
+// LAMBDA ILS wrapper. Returns (candidates int64 (k, n), sq_errors
+// float64 (k,), nodes_visited, aborted_reason). aborted_reason: 0 OK,
+// 1 max_nodes, 2 max_seconds. The Python lambda_ar layer translates
+// that into ILSAborted.
+nb::tuple lambda_ils_py(
+        nb::ndarray<const double, nb::ndim<1>, nb::c_contig, nb::device::cpu> a_float,
+        nb::ndarray<const double, nb::ndim<2>, nb::c_contig, nb::device::cpu> Q,
+        std::size_t n_cands,
+        std::uint64_t max_nodes,
+        double max_seconds) {
+    const std::size_t n = a_float.size();
+    if (Q.shape(0) != n || Q.shape(1) != n) {
+        throw std::invalid_argument(
+            "lambda_ils: Q must be square (n, n) matching a_float length");
+    }
+    rinexpy_native::IlsResult res = rinexpy_native::integer_least_squares(
+        a_float.data(), Q.data(), n, n_cands, max_nodes, max_seconds);
+
+    auto cands_arr = make_owned_2d<std::int64_t>(
+        res.candidates, res.n_returned, n);
+    auto sq_arr = make_owned_1d<double>(res.sq_errors);
+
+    return nb::make_tuple(cands_arr, sq_arr,
+                          static_cast<std::uint64_t>(res.nodes_visited),
+                          res.aborted_reason);
 }
 
 // MSB-first bit extraction. Numerical contract identical to
@@ -117,4 +172,16 @@ NB_MODULE(_ext, m) {
         "MSB-first bit extraction. Reads `n_bits` (<=64) from `data` at\n"
         "bit offset `start_bit`. When `is_signed=True`, sign-extends.\n"
         "Bit-identical to rinexpy.rtcm3._bits.");
+
+    m.def(
+        "lambda_ils",
+        &lambda_ils_py,
+        nb::arg("a_float"),
+        nb::arg("Q"),
+        nb::arg("n_cands"),
+        nb::arg("max_nodes"),
+        nb::arg("max_seconds"),
+        "LAMBDA branch-and-bound integer least squares. Returns\n"
+        "(candidates int64 (k,n), sq_errors float64 (k,), nodes,\n"
+        "aborted_reason in {0,1,2}).");
 }
