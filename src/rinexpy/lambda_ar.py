@@ -27,6 +27,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from . import _native
+
 
 def ldl(Q: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Compute :math:`Q = L D L^T` for a symmetric positive-definite ``Q``.
@@ -169,7 +171,31 @@ def integer_least_squares(
     initial bound. Decorrelation is intentionally skipped here (ILS is
     computed in the original space); for very correlated ambiguity
     sets, see :func:`decorrelate` to apply a Z-transform first.
+
+    The branch-and-bound search runs through the optional C++ kernel
+    (:func:`rinexpy_native.lambda_ils`, ~50-500x faster) when the
+    extension is installed; the pure-Python loop below is the fallback.
     """
+    a_float = np.ascontiguousarray(a_float, dtype=float)
+    Q = np.ascontiguousarray(Q, dtype=float)
+
+    if _native.have_lambda_ils():
+        # L is still needed by callers that inspect the LDL factor; the
+        # C++ kernel doesn't return it, so compute it once via the
+        # Python LDL (cheap for the small n that ILS handles).
+        L, _D = ldl(Q)
+        cands_arr, sq_arr, _nodes, abr = _native.lambda_ils(
+            a_float, Q, int(n_cands), int(max_nodes), max_seconds)
+        if abr != 0:
+            reason = (f"max_nodes={max_nodes} exceeded" if abr == 1
+                      else f"max_seconds={max_seconds} exceeded")
+            raise ILSAborted(
+                f"integer_least_squares: {reason} after {_nodes} nodes",
+                candidates=cands_arr,
+                sq_errors=sq_arr,
+            )
+        return cands_arr, sq_arr, L
+
     import time
 
     L, D = ldl(Q)

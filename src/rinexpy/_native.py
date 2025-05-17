@@ -44,6 +44,12 @@ try:
 except ImportError:  # pragma: no cover
     _read_bits = None  # type: ignore[assignment]
 
+# lambda_ils was added alongside crc24q / read_bits.
+try:
+    from rinexpy_native import lambda_ils as _lambda_ils  # type: ignore[attr-defined]
+except ImportError:  # pragma: no cover
+    _lambda_ils = None  # type: ignore[assignment]
+
 
 def is_available() -> bool:
     """Return ``True`` if ``rinexpy_native`` is importable in this Python."""
@@ -102,12 +108,37 @@ def read_bits(data: bytes, start_bit: int, n_bits: int,
     return _read_bits(data, start_bit, n_bits, is_signed)
 
 
+def have_lambda_ils() -> bool:
+    """Return ``True`` if the C++ LAMBDA ILS kernel is available."""
+    return _lambda_ils is not None
+
+
+def lambda_ils(a_float, Q, n_cands: int, max_nodes: int,
+               max_seconds: float):
+    """LAMBDA branch-and-bound ILS via the C++ kernel.
+
+    Returns ``(candidates, sq_errors, nodes_visited, aborted_reason)``
+    where ``aborted_reason`` is ``0`` on completion, ``1`` for a
+    ``max_nodes`` abort, ``2`` for ``max_seconds``. The Python wrapper
+    in :mod:`rinexpy.lambda_ar` translates that into ``ILSAborted``.
+    """
+    if _lambda_ils is None:
+        raise ImportError(
+            "rinexpy_native.lambda_ils is not installed; "
+            "rebuild rinexpy-native >= 0.2.0 via `uv sync --extra native`."
+        )
+    return _lambda_ils(a_float, Q, n_cands, max_nodes,
+                       -1.0 if max_seconds is None else float(max_seconds))
+
+
 __all__ = [
     "crc24q",
     "decode_obs_batch",
     "have_crc24q",
+    "have_lambda_ils",
     "have_read_bits",
     "is_available",
     "is_enabled",
+    "lambda_ils",
     "read_bits",
 ]
