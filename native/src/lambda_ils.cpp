@@ -260,6 +260,7 @@ IlsResult integer_least_squares(const double* a_float,
             out.candidates[i * n + j] = st.cands[i].second[j];
         }
     }
+    out.L_factor = std::move(L);
     out.nodes_visited = st.nodes;
     out.aborted_reason = st.aborted_reason;
     return out;

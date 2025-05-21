@@ -43,6 +43,8 @@ struct IlsResult {
     std::vector<std::int64_t> candidates;
     // sq_errors: length n_returned.
     std::vector<double> sq_errors;
+    // L_factor: row-major (n, n) unit lower-triangular LDL factor.
+    std::vector<double> L_factor;
     // n_returned <= requested n_cands.
     std::size_t n_returned = 0;
     // Search budget bookkeeping.

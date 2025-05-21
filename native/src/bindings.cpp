@@ -111,8 +111,9 @@ nb::tuple lambda_ils_py(
     auto cands_arr = make_owned_2d<std::int64_t>(
         res.candidates, res.n_returned, n);
     auto sq_arr = make_owned_1d<double>(res.sq_errors);
+    auto L_arr = make_owned_2d<double>(res.L_factor, n, n);
 
-    return nb::make_tuple(cands_arr, sq_arr,
+    return nb::make_tuple(cands_arr, sq_arr, L_arr,
                           static_cast<std::uint64_t>(res.nodes_visited),
                           res.aborted_reason);
 }

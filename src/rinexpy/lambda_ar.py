@@ -180,11 +180,7 @@ def integer_least_squares(
     Q = np.ascontiguousarray(Q, dtype=float)
 
     if _native.have_lambda_ils():
-        # L is still needed by callers that inspect the LDL factor; the
-        # C++ kernel doesn't return it, so compute it once via the
-        # Python LDL (cheap for the small n that ILS handles).
-        L, _D = ldl(Q)
-        cands_arr, sq_arr, _nodes, abr = _native.lambda_ils(
+        cands_arr, sq_arr, L, _nodes, abr = _native.lambda_ils(
             a_float, Q, int(n_cands), int(max_nodes), max_seconds)
         if abr != 0:
             reason = (f"max_nodes={max_nodes} exceeded" if abr == 1
