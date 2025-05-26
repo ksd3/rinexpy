@@ -1,0 +1,20 @@
+rinexpy_native available: crc24q=True, read_bits=True, lambda_ils=True
+
+== RTCM3 inner loops ==
+  corpus: GMSD7 (256 KB)
+  crc24q(buffer)       py   78.50 ms    cpp    0.49 ms     159.7x
+  iter_messages (CRC)  py  215.06 ms    cpp   39.61 ms       5.4x   (1143 msgs)
+
+== LAMBDA ILS (well-conditioned: clean RTK geometry) ==
+  n=5  L1-only GPS        py     0.08 ms    cpp     0.00 ms      31.6x
+  n=10 multi-GNSS L1      py     0.20 ms    cpp     0.00 ms      68.0x
+  n=20 dual-freq          py     0.70 ms    cpp     0.01 ms     127.3x
+  n=30 multi-GNSS         py     1.55 ms    cpp     0.01 ms     177.4x
+  n=40 multi-GNSS         py     2.50 ms    cpp     0.01 ms     233.0x
+
+== LAMBDA ILS (ill-conditioned: weak-geometry RTK) ==
+  n=8  noisy              py     0.17 ms    cpp     0.00 ms      54.2x
+  n=12 noisy              py     0.38 ms    cpp     0.01 ms      73.4x
+  n=15 noisy              py     0.69 ms    cpp     0.01 ms      95.4x
+  n=20 noisy              py     2.17 ms    cpp     0.02 ms      97.4x
+  lambda_resolve(n=15)    py     0.39 ms    cpp     0.00 ms      91.3x
