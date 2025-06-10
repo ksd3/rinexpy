@@ -9,6 +9,7 @@
 #include "crc24q.hpp"
 #include "decode_obs_batch.hpp"
 #include "lambda_ils.hpp"
+#include "msm_decode.hpp"
 
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
@@ -118,6 +119,95 @@ nb::tuple lambda_ils_py(
                           res.aborted_reason);
 }
 
+// Full MSM4 / MSM7 frame decoder. Returns a Python dict with the
+// header scalars plus several typed ndarrays:
+//
+//   - sv_indices       int32 (n_sv,)
+//   - signal_indices   int32 (n_sig,)
+//   - cell_mask        uint8 (n_sv * n_sig,)
+//   - rough_range_ms   float64 (n_sv,)
+//   - extended_info    int32 (n_sv,)
+//   - rough_doppler    int32 (n_sv,)        raw signed-14-bit value
+//   - obs_sv_k         int32 (n_present,)   index into sv_indices
+//   - obs_sig_k        int32 (n_present,)   index into signal_indices
+//   - pseudorange_m    float64 (n_present,)
+//   - phase_m          float64 (n_present,)
+//   - lock_time        int32 (n_present,)
+//   - half_cycle_ambiguity int32 (n_present,)
+//   - cnr_dbhz         float64 (n_present,)
+//   - doppler_mps      float64 (n_present,) NaN for MSM4 cells
+//   - payload_truncated bool
+//
+// The Python wrapper assembles the public dict-of-list-of-dicts shape
+// from these arrays so existing callers (test_rtcm3_real, NTRIP
+// streamers, real-time PPP) don't have to change.
+nb::dict decode_msm_py(nb::bytes body, int msm_kind) {
+    if (msm_kind != 4 && msm_kind != 7) {
+        throw std::invalid_argument("msm_kind must be 4 or 7");
+    }
+    const auto* ptr = reinterpret_cast<const std::uint8_t*>(body.c_str());
+    const std::size_t n = body.size();
+    rinexpy_native::MsmResult r = rinexpy_native::decode_msm(
+        ptr, n, msm_kind);
+
+    nb::dict d;
+    d["station_id"] = r.station_id;
+    d["tow_ms"] = r.tow_ms;
+    d["sync"] = r.sync;
+    d["iod"] = r.iod;
+    d["smoothing_indicator"] = r.smoothing_indicator;
+    d["smoothing_interval"] = r.smoothing_interval;
+    d["sv_mask"] = r.sv_mask;
+    d["signal_mask"] = r.signal_mask;
+    d["n_sv"] = r.n_sv;
+    d["n_sig"] = r.n_sig;
+    d["payload_truncated"] = r.payload_truncated;
+
+    // Convert vector<int> -> int32 ndarray.
+    auto i32 = [](const std::vector<int>& v) {
+        std::int32_t* data = new std::int32_t[v.size() ? v.size() : 1];
+        for (std::size_t i = 0; i < v.size(); ++i) {
+            data[i] = static_cast<std::int32_t>(v[i]);
+        }
+        std::size_t shape[1] = { v.size() };
+        nb::capsule owner(data, [](void* p) noexcept {
+            delete[] static_cast<std::int32_t*>(p);
+        });
+        return nb::ndarray<nb::numpy, std::int32_t, nb::device::cpu>(
+            data, 1, shape, owner);
+    };
+    auto u8 = [](const std::vector<std::uint8_t>& v) {
+        std::uint8_t* data = new std::uint8_t[v.size() ? v.size() : 1];
+        std::memcpy(data, v.data(), v.size());
+        std::size_t shape[1] = { v.size() };
+        nb::capsule owner(data, [](void* p) noexcept {
+            delete[] static_cast<std::uint8_t*>(p);
+        });
+        return nb::ndarray<nb::numpy, std::uint8_t, nb::device::cpu>(
+            data, 1, shape, owner);
+    };
+    auto f64 = [](const std::vector<double>& v) {
+        return make_owned_1d<double>(v);
+    };
+
+    d["sv_indices"] = i32(r.sv_indices);
+    d["signal_indices"] = i32(r.signal_indices);
+    d["cell_mask"] = u8(r.cell_mask);
+    d["rough_range_ms"] = f64(r.rough_range_ms);
+    d["extended_info"] = i32(r.extended_info);
+    d["rough_doppler"] = i32(r.rough_doppler);
+    d["obs_sv_k"] = i32(r.obs_sv_k);
+    d["obs_sig_k"] = i32(r.obs_sig_k);
+    d["pseudorange_m"] = f64(r.pseudorange_m);
+    d["phase_m"] = f64(r.phase_m);
+    d["lock_time"] = i32(r.lock_time);
+    d["half_cycle_ambiguity"] = i32(r.half_cycle_ambiguity);
+    d["cnr_dbhz"] = f64(r.cnr_dbhz);
+    d["doppler_mps"] = f64(r.doppler_mps);
+
+    return d;
+}
+
 // MSB-first bit extraction. Numerical contract identical to
 // rinexpy.rtcm3._bits: unsigned by default, sign-extend when
 // is_signed=True. n_bits must be in [0, 64]. Returns a Python int so
@@ -185,4 +275,14 @@ NB_MODULE(_ext, m) {
         "LAMBDA branch-and-bound integer least squares. Returns\n"
         "(candidates int64 (k,n), sq_errors float64 (k,), nodes,\n"
         "aborted_reason in {0,1,2}).");
+
+    m.def(
+        "decode_msm",
+        &decode_msm_py,
+        nb::arg("body"),
+        nb::arg("msm_kind"),
+        "Decode an MSM4 (msm_kind=4) or MSM7 (msm_kind=7) RTCM3 frame\n"
+        "body. Returns a dict of header scalars plus several typed\n"
+        "ndarrays (sv_indices, signal_indices, cell_mask, the per-SV\n"
+        "block, and parallel arrays of per-cell observations).");
 }
