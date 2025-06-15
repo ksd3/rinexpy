@@ -581,6 +581,81 @@ def _decode_1033(body: bytes) -> dict[str, Any]:
 _MSM_C = 299_792.458  # speed of light in m/ms
 
 
+def _assemble_msm_from_native(msg_id: int, body: bytes, msm_kind: int) -> dict[str, Any]:
+    """Assemble the public dict shape from the C++ kernel's flat arrays.
+
+    The C++ side returns header scalars plus parallel ndarrays so it
+    can decode the entire frame in one FFI hop. Here we pivot those
+    back into the ``{"satellites": [...], "observations": [...]}``
+    layout that callers expect, matching the pure-Python decoder
+    field-for-field.
+    """
+    raw = _native.decode_msm(bytes(body), msm_kind)
+    sat_letter = _MSM_SYSTEM_LETTER.get(msg_id, "?")
+
+    out: dict[str, Any] = {
+        "msg_id": msg_id,
+        "station_id": int(raw["station_id"]),
+        "tow_ms": int(raw["tow_ms"]),
+        "sync": int(raw["sync"]),
+        "iod": int(raw["iod"]),
+        "smoothing_indicator": int(raw["smoothing_indicator"]),
+        "smoothing_interval": int(raw["smoothing_interval"]),
+        "sv_mask": int(raw["sv_mask"]),
+        "signal_mask": int(raw["signal_mask"]),
+        "n_sv": int(raw["n_sv"]),
+        "n_sig": int(raw["n_sig"]),
+        "sv_indices": [int(x) for x in raw["sv_indices"]],
+        "signal_indices": [int(x) for x in raw["signal_indices"]],
+    }
+    if raw["payload_truncated"]:
+        out["payload_truncated"] = True
+        return out
+    out["cell_mask"] = [int(x) for x in raw["cell_mask"]]
+
+    sv_indices = out["sv_indices"]
+    sig_indices = out["signal_indices"]
+    rough_range = raw["rough_range_ms"]
+    ext_info = raw["extended_info"]
+    rough_dop = raw["rough_doppler"]
+
+    sats: list[dict[str, Any]] = []
+    sv_labels: list[str] = []
+    for k, sv_idx in enumerate(sv_indices):
+        label = f"{sat_letter}{sv_idx + 1:02d}"
+        sv_labels.append(label)
+        sats.append({
+            "sv": label,
+            "rough_range_ms": float(rough_range[k]),
+            "extended_info": int(ext_info[k]),
+            "rough_doppler_mps": int(rough_dop[k]),
+        })
+    out["satellites"] = sats
+
+    observations: list[dict[str, Any]] = []
+    obs_sv_k = raw["obs_sv_k"]
+    obs_sig_k = raw["obs_sig_k"]
+    pr_arr = raw["pseudorange_m"]
+    ph_arr = raw["phase_m"]
+    lock_arr = raw["lock_time"]
+    half_arr = raw["half_cycle_ambiguity"]
+    cnr_arr = raw["cnr_dbhz"]
+    dop_arr = raw["doppler_mps"]
+    for i in range(len(pr_arr)):
+        observations.append({
+            "sv": sv_labels[int(obs_sv_k[i])],
+            "signal_index": sig_indices[int(obs_sig_k[i])],
+            "pseudorange_m": float(pr_arr[i]),
+            "phase_m": float(ph_arr[i]),
+            "lock_time": int(lock_arr[i]),
+            "half_cycle_ambiguity": int(half_arr[i]),
+            "cnr_dbhz": float(cnr_arr[i]),
+            "doppler_mps": float(dop_arr[i]),
+        })
+    out["observations"] = observations
+    return out
+
+
 def _decode_msm_header(msg_id: int, body: bytes, *, msm_kind: int = 7) -> dict[str, Any]:
     """Decode an MSM4 or MSM7 message: header + per-satellite + per-cell blocks.
 
@@ -593,7 +668,14 @@ def _decode_msm_header(msg_id: int, body: bytes, *, msm_kind: int = 7) -> dict[s
     (one dict per SV in the SV mask) and an ``observations`` list (one
     dict per cell present in the cell mask). All observations are in
     SI units regardless of MSM kind.
+
+    Dispatches to :func:`rinexpy_native.decode_msm` when available
+    (~5-10x faster end-to-end on full MSM7 frames) and assembles the
+    public dict shape from the returned parallel arrays. Falls back to
+    the pure-Python walk below otherwise.
     """
+    if _native.have_decode_msm():
+        return _assemble_msm_from_native(msg_id, body, msm_kind)
     bit = 12
     sta_id = _bits(body, bit, 12)
     bit += 12

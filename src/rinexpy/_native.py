@@ -50,6 +50,12 @@ try:
 except ImportError:  # pragma: no cover
     _lambda_ils = None  # type: ignore[assignment]
 
+# decode_msm landed in the same round as lambda_ils.
+try:
+    from rinexpy_native import decode_msm as _decode_msm  # type: ignore[attr-defined]
+except ImportError:  # pragma: no cover
+    _decode_msm = None  # type: ignore[assignment]
+
 
 def is_available() -> bool:
     """Return ``True`` if ``rinexpy_native`` is importable in this Python."""
@@ -113,6 +119,21 @@ def have_lambda_ils() -> bool:
     return _lambda_ils is not None
 
 
+def have_decode_msm() -> bool:
+    """Return ``True`` if the C++ MSM decoder kernel is available."""
+    return _decode_msm is not None
+
+
+def decode_msm(body: bytes, msm_kind: int):
+    """Full MSM4 / MSM7 frame decoder via the C++ kernel."""
+    if _decode_msm is None:
+        raise ImportError(
+            "rinexpy_native.decode_msm is not installed; "
+            "rebuild rinexpy-native >= 0.2.0 via `uv sync --extra native`."
+        )
+    return _decode_msm(body, msm_kind)
+
+
 def lambda_ils(a_float, Q, n_cands: int, max_nodes: int,
                max_seconds: float):
     """LAMBDA branch-and-bound ILS via the C++ kernel.
@@ -133,8 +154,10 @@ def lambda_ils(a_float, Q, n_cands: int, max_nodes: int,
 
 __all__ = [
     "crc24q",
+    "decode_msm",
     "decode_obs_batch",
     "have_crc24q",
+    "have_decode_msm",
     "have_lambda_ils",
     "have_read_bits",
     "is_available",
