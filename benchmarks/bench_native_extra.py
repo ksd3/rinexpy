@@ -51,7 +51,7 @@ def _median_of(callable_, n: int = 5) -> float:
 def _force_native(flag: bool) -> None:
     """Toggle the dispatch helpers in rinexpy._native at runtime.
 
-    All three functions short-circuit based on `have_xxx()` returning
+    All four functions short-circuit based on `have_xxx()` returning
     True/False, so we can swap implementations without re-importing
     anything.
     """
@@ -59,10 +59,12 @@ def _force_native(flag: bool) -> None:
         _native.have_crc24q = lambda: _native._crc24q is not None
         _native.have_read_bits = lambda: _native._read_bits is not None
         _native.have_lambda_ils = lambda: _native._lambda_ils is not None
+        _native.have_decode_msm = lambda: _native._decode_msm is not None
     else:
         _native.have_crc24q = lambda: False
         _native.have_read_bits = lambda: False
         _native.have_lambda_ils = lambda: False
+        _native.have_decode_msm = lambda: False
 
 
 # ----------------------------------------------------------------------
@@ -94,22 +96,34 @@ def bench_rtcm3() -> None:
     print(f"  crc24q(buffer)       py {t_py*1e3:7.2f} ms    cpp {t_cpp*1e3:7.2f} ms    "
           f"{t_py/t_cpp:6.1f}x")
 
-    # 2. iter_messages end-to-end with CRC check on (only useful with the
-    # real capture; on the synthetic input the loop never finds a valid
-    # frame so we skip the run).
+    # 2. iter_messages end-to-end with CRC check on, walking the
+    # dispatch stack one layer at a time so the per-kernel
+    # contribution is visible. Only meaningful with the real capture.
     if _RTCM3_CAPTURE.exists():
         from io import BytesIO
 
         def run():
             return list(r3.iter_messages(BytesIO(data), check_crc=True))
 
-        _force_native(False)
+        def configure(crc, bits, msm):
+            _native.have_crc24q = (lambda: True) if crc else (lambda: False)
+            _native.have_read_bits = (lambda: True) if bits else (lambda: False)
+            _native.have_decode_msm = (lambda: True) if msm else (lambda: False)
+
+        configure(False, False, False)
         t_py = _median_of(run, n=3)
-        _force_native(True)
-        t_cpp = _median_of(run, n=3)
+        configure(True, False, False)
+        t_crc = _median_of(run, n=3)
+        configure(True, True, False)
+        t_bits = _median_of(run, n=3)
+        configure(True, True, True)
+        t_all = _median_of(run, n=3)
         n_msgs = len(list(r3.iter_messages(BytesIO(data))))
-        print(f"  iter_messages (CRC)  py {t_py*1e3:7.2f} ms    cpp {t_cpp*1e3:7.2f} ms    "
-              f"{t_py/t_cpp:6.1f}x   ({n_msgs} msgs)")
+        print(f"  iter_messages (CRC + decode), {n_msgs} msgs")
+        print(f"    pure-Python              {t_py*1e3:7.2f} ms   1.00x")
+        print(f"    + native crc24q          {t_crc*1e3:7.2f} ms   {t_py/t_crc:5.2f}x")
+        print(f"    + native _bits           {t_bits*1e3:7.2f} ms   {t_py/t_bits:5.2f}x")
+        print(f"    + native decode_msm      {t_all*1e3:7.2f} ms   {t_py/t_all:5.2f}x")
 
     _force_native(True)
 
@@ -215,7 +229,8 @@ def main() -> None:
         return
     print(f"rinexpy_native available: crc24q={_native.have_crc24q()}, "
           f"read_bits={_native.have_read_bits()}, "
-          f"lambda_ils={_native.have_lambda_ils()}")
+          f"lambda_ils={_native.have_lambda_ils()}, "
+          f"decode_msm={_native.have_decode_msm()}")
     bench_rtcm3()
     bench_lambda()
 

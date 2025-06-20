@@ -25,6 +25,11 @@ def test_native_read_bits_available():
     assert _native.have_read_bits() is True
 
 
+def test_native_decode_msm_available():
+    """The MSM frame decoder ships with the >=0.2 native wheel."""
+    assert _native.have_decode_msm() is True
+
+
 def test_crc24q_empty_buffer():
     """CRC over the empty buffer must be 0 in both paths."""
     assert crc24q(b"") == 0
@@ -69,6 +74,87 @@ def test_read_bits_matches_python_on_random_offsets():
             _native.have_read_bits = original
         cpp_val = _bits(data, start, nb, signed=signed)
         assert py_val == cpp_val, (size, start, nb, signed, py_val, cpp_val)
+
+
+def test_msm_decoder_matches_python_on_real_capture():
+    """Every MSM4/MSM7 frame in the bundled RTKLIB GMSD7 capture decodes
+    bit-identically through the native kernel vs the pure-Python decoder.
+
+    Skipped if the capture isn't cached locally.
+    """
+    import math
+    from io import BytesIO
+    from pathlib import Path
+
+    from rinexpy.rtcm3 import _decode_msm_header
+
+    cap = Path("/tmp/igs_real_cache/GMSD7_20121014.rtcm3")
+    if not cap.exists():
+        pytest.skip(
+            "RTKLIB GMSD7 capture not cached; run test_rtcm3_real to fetch it"
+        )
+
+    msm7_ids = {1077, 1087, 1097, 1107, 1117, 1127, 1137}
+    msm4_ids = {1074, 1084, 1094, 1104, 1114, 1124, 1134}
+
+    data = cap.read_bytes()
+    buf = BytesIO(data)
+    checked = 0
+    while True:
+        b = buf.read(1)
+        if not b:
+            break
+        if b[0] != 0xD3:
+            continue
+        head = buf.read(2)
+        if len(head) < 2:
+            break
+        length = ((head[0] & 0x03) << 8) | head[1]
+        body = buf.read(length)
+        crc = buf.read(3)
+        if len(body) < length or len(crc) < 3:
+            break
+        msg_id = (body[0] << 4) | (body[1] >> 4)
+        if msg_id in msm7_ids:
+            kind = 7
+        elif msg_id in msm4_ids:
+            kind = 4
+        else:
+            continue
+
+        # Toggle the dispatcher off to get the pure-Python ground truth.
+        _native.have_decode_msm, original = (lambda: False), _native.have_decode_msm
+        try:
+            py = _decode_msm_header(msg_id, body, msm_kind=kind)
+        finally:
+            _native.have_decode_msm = original
+        cpp = _decode_msm_header(msg_id, body, msm_kind=kind)
+
+        assert py["msg_id"] == cpp["msg_id"]
+        for k in ("station_id", "tow_ms", "sync", "iod",
+                  "sv_mask", "signal_mask", "n_sv", "n_sig",
+                  "sv_indices", "signal_indices"):
+            assert py[k] == cpp[k], (msg_id, k)
+        py_obs = py["observations"]
+        cpp_obs = cpp["observations"]
+        assert len(py_obs) == len(cpp_obs)
+        for i, o in enumerate(py_obs):
+            c = cpp_obs[i]
+            assert o["sv"] == c["sv"]
+            assert o["signal_index"] == c["signal_index"]
+            assert math.isclose(o["pseudorange_m"], c["pseudorange_m"],
+                                abs_tol=1e-9)
+            assert math.isclose(o["phase_m"], c["phase_m"], abs_tol=1e-9)
+            assert o["lock_time"] == c["lock_time"]
+            assert o["cnr_dbhz"] == c["cnr_dbhz"]
+            # Doppler is NaN on MSM4 -- math.isclose handles that.
+            if math.isnan(o["doppler_mps"]):
+                assert math.isnan(c["doppler_mps"])
+            else:
+                assert math.isclose(o["doppler_mps"], c["doppler_mps"],
+                                    abs_tol=1e-9)
+        checked += 1
+    assert checked > 100, f"expected >100 MSM frames, saw {checked}"
 
 
 def test_iter_messages_with_native_dispatch_decodes_msm():
