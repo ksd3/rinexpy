@@ -13,7 +13,8 @@ Kernels currently shipped:
 |-----------------------|----------------------------------------------|-----------------|
 | `decode_obs_batch`    | the OBS3 fixed-width inner decoder           | ~40x vs georinex on a 23h file |
 | `crc24q`              | `rinexpy.rtcm3.crc24q`                       | ~150x (510 MB/s) |
-| `read_bits`           | `rinexpy.rtcm3._bits` (MSB-first bit cursor) | ~9x; end-to-end `iter_messages` ~5-6x |
+| `read_bits`           | `rinexpy.rtcm3._bits` (MSB-first bit cursor) | ~9x; with `_bits` alone, `iter_messages` ~5-6x |
+| `decode_msm`          | `rinexpy.rtcm3._decode_msm_header` (full MSM frame body) | end-to-end `iter_messages` ~9x |
 | `lambda_ils`          | `rinexpy.lambda_ar.integer_least_squares`    | 30-220x depending on n |
 
 ## Separate package
@@ -42,12 +43,22 @@ OBS3 reader:
 | `rinexpy[jit]`            | ~44 ms                   | 25x         |
 | `rinexpy[native]`         | ~25-30 ms                | ~40x        |
 
-RTCM3 (RTKLIB GMSD7 multi-GNSS capture, 1143 messages):
+RTCM3 (RTKLIB GMSD7 multi-GNSS capture, 1143 messages, 1028 of which
+are MSM4 / MSM7 frames):
 
 |                                 | pure-Python | with native | speedup |
 |---------------------------------|-------------|-------------|---------|
 | `crc24q(256 KB)`                | 78 ms       | 0.49 ms     | 160x    |
-| `iter_messages(check_crc=True)` | 216 ms      | 40 ms       | 5.4x    |
+| `iter_messages(check_crc=True)` | 217 ms      | 24 ms       | 9.0x    |
+
+Walking the dispatch stack one kernel at a time on the same capture:
+
+| layer                  | wall   | speedup |
+|------------------------|--------|---------|
+| pure-Python            | 217 ms | 1.00x   |
+| + native `crc24q`      | 138 ms | 1.58x   |
+| + native `_bits`       | 39 ms  | 5.63x   |
+| + native `decode_msm`  | 24 ms  | 9.0x    |
 
 LAMBDA integer search (`integer_least_squares`):
 
