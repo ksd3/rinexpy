@@ -7,6 +7,7 @@ The compiled extension currently exposes:
 - :func:`read_bits` — MSB-first bit-cursor extraction (RTCM3 / SSR / MSM).
 - :func:`lambda_ils` — LAMBDA branch-and-bound integer least squares.
 - :func:`decode_msm` — full MSM4 / MSM7 frame decoder.
+- :func:`interpolate_sp3_lagrange` — batched order-N SP3 Lagrange interp.
 
 These are wired up by ``rinexpy.obs3`` / ``rinexpy.rtcm3`` when the
 package is importable, so end users typically never call into here
@@ -27,6 +28,7 @@ from ._ext import (
     crc24q,
     decode_msm,
     decode_obs_batch,
+    interpolate_sp3_lagrange,
     lambda_ils,
     read_bits,
 )
@@ -38,6 +40,7 @@ __all__ = [
     "crc24q",
     "decode_msm",
     "decode_obs_batch",
+    "interpolate_sp3_lagrange",
     "lambda_ils",
     "read_bits",
 ]

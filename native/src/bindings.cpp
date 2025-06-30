@@ -8,6 +8,7 @@
 #include "bit_cursor.hpp"
 #include "crc24q.hpp"
 #include "decode_obs_batch.hpp"
+#include "lagrange_sp3.hpp"
 #include "lambda_ils.hpp"
 #include "msm_decode.hpp"
 
@@ -117,6 +118,35 @@ nb::tuple lambda_ils_py(
     return nb::make_tuple(cands_arr, sq_arr, L_arr,
                           static_cast<std::uint64_t>(res.nodes_visited),
                           res.aborted_reason);
+}
+
+// Batched Lagrange SP3 interpolation. Returns a fresh (n_q, n_sv, 3)
+// float64 ndarray. The src_t / query arrays are int64 ns since epoch
+// (matching how the Python wrapper converts datetime64[ns]).
+nb::ndarray<nb::numpy, double, nb::ndim<3>, nb::device::cpu>
+interpolate_sp3_py(
+        nb::ndarray<const std::int64_t, nb::ndim<1>, nb::c_contig, nb::device::cpu> src_t,
+        nb::ndarray<const double, nb::ndim<3>, nb::c_contig, nb::device::cpu> pos,
+        nb::ndarray<const std::int64_t, nb::ndim<1>, nb::c_contig, nb::device::cpu> query,
+        std::size_t span) {
+    const std::size_t n_src = src_t.size();
+    const std::size_t n_sv = pos.shape(1);
+    if (pos.shape(0) != n_src || pos.shape(2) != 3) {
+        throw std::invalid_argument(
+            "pos must be (n_src, n_sv, 3) and match src_t length");
+    }
+    const std::size_t n_q = query.size();
+    const std::size_t row_stride = n_sv * 3;
+    double* data = new double[n_q * row_stride];
+    rinexpy_native::interpolate_sp3_lagrange(
+        src_t.data(), pos.data(), n_src, n_sv,
+        query.data(), n_q, span, data);
+    std::size_t shape[3] = { n_q, n_sv, 3 };
+    nb::capsule owner(data, [](void* p) noexcept {
+        delete[] static_cast<double*>(p);
+    });
+    return nb::ndarray<nb::numpy, double, nb::ndim<3>, nb::device::cpu>(
+        data, 3, shape, owner);
 }
 
 // Full MSM4 / MSM7 frame decoder. Returns a Python dict with the
@@ -285,4 +315,16 @@ NB_MODULE(_ext, m) {
         "body. Returns a dict of header scalars plus several typed\n"
         "ndarrays (sv_indices, signal_indices, cell_mask, the per-SV\n"
         "block, and parallel arrays of per-cell observations).");
+
+    m.def(
+        "interpolate_sp3_lagrange",
+        &interpolate_sp3_py,
+        nb::arg("src_t"),
+        nb::arg("pos"),
+        nb::arg("query"),
+        nb::arg("span"),
+        "Batched order-(span-1) Lagrange interpolation for SP3-style\n"
+        "satellite positions. Returns a fresh (n_q, n_sv, 3) float64\n"
+        "ndarray. src_t / query are int64 ns since epoch; pos is\n"
+        "(n_src, n_sv, 3) row-major float64.");
 }
