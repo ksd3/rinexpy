@@ -14,6 +14,8 @@ from typing import overload
 import numpy as np
 import xarray as xr
 
+from . import _native
+
 
 def interpolate_sp3(
     sp3: xr.Dataset,
@@ -57,24 +59,35 @@ def interpolate_sp3(
 
     pos = sp3.position.values  # (n_t, n_sv, 3)
     n_sv = pos.shape[1]
-    out = np.full((query.size, n_sv, 3), np.nan)
 
     span = order + 1
     n_src = src_t.size
     if span > n_src:
         span = n_src
 
-    for q_idx, q in enumerate(query):
-        # Pick `span` source epochs centered around q.
-        idx = int(np.searchsorted(src_t, q))
-        lo = max(0, idx - span // 2)
-        hi = lo + span
-        if hi > n_src:
-            hi = n_src
-            lo = max(0, hi - span)
-        sub_t = src_t[lo:hi].astype(float)
-        sub_p = pos[lo:hi]  # (span, n_sv, 3)
-        out[q_idx] = _lagrange(sub_t, sub_p, float(q))
+    if _native.have_interpolate_sp3() and query.size > 0:
+        out = np.asarray(
+            _native.interpolate_sp3_lagrange(
+                np.ascontiguousarray(src_t, dtype=np.int64),
+                np.ascontiguousarray(pos, dtype=np.float64),
+                np.ascontiguousarray(query, dtype=np.int64),
+                span,
+            ),
+            dtype=float,
+        )
+    else:
+        out = np.full((query.size, n_sv, 3), np.nan)
+        for q_idx, q in enumerate(query):
+            # Pick `span` source epochs centered around q.
+            idx = int(np.searchsorted(src_t, q))
+            lo = max(0, idx - span // 2)
+            hi = lo + span
+            if hi > n_src:
+                hi = n_src
+                lo = max(0, hi - span)
+            sub_t = src_t[lo:hi].astype(float)
+            sub_p = pos[lo:hi]  # (span, n_sv, 3)
+            out[q_idx] = _lagrange(sub_t, sub_p, float(q))
 
     times_arr = query.view("datetime64[ns]")
     if scalar:

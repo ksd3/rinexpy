@@ -56,6 +56,14 @@ try:
 except ImportError:  # pragma: no cover
     _decode_msm = None  # type: ignore[assignment]
 
+# interpolate_sp3_lagrange follows decode_msm.
+try:
+    from rinexpy_native import (  # type: ignore[attr-defined]
+        interpolate_sp3_lagrange as _interpolate_sp3_lagrange,
+    )
+except ImportError:  # pragma: no cover
+    _interpolate_sp3_lagrange = None  # type: ignore[assignment]
+
 
 def is_available() -> bool:
     """Return ``True`` if ``rinexpy_native`` is importable in this Python."""
@@ -134,6 +142,21 @@ def decode_msm(body: bytes, msm_kind: int):
     return _decode_msm(body, msm_kind)
 
 
+def have_interpolate_sp3() -> bool:
+    """Return ``True`` if the C++ Lagrange SP3 kernel is available."""
+    return _interpolate_sp3_lagrange is not None
+
+
+def interpolate_sp3_lagrange(src_t, pos, query, span: int):
+    """Batched Lagrange SP3 interpolation via the C++ kernel."""
+    if _interpolate_sp3_lagrange is None:
+        raise ImportError(
+            "rinexpy_native.interpolate_sp3_lagrange is not installed; "
+            "rebuild rinexpy-native >= 0.2.0 via `uv sync --extra native`."
+        )
+    return _interpolate_sp3_lagrange(src_t, pos, query, int(span))
+
+
 def lambda_ils(a_float, Q, n_cands: int, max_nodes: int,
                max_seconds: float):
     """LAMBDA branch-and-bound ILS via the C++ kernel.
@@ -158,8 +181,10 @@ __all__ = [
     "decode_obs_batch",
     "have_crc24q",
     "have_decode_msm",
+    "have_interpolate_sp3",
     "have_lambda_ils",
     "have_read_bits",
+    "interpolate_sp3_lagrange",
     "is_available",
     "is_enabled",
     "lambda_ils",
