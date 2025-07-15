@@ -222,6 +222,39 @@ def bench_lambda() -> None:
     _force_native(True)
 
 
+def bench_interp_sp3() -> None:
+    """Time interpolate_sp3 with and without the native kernel.
+
+    Uses the bundled igs19362.sp3c if the IGS final SP3 isn't cached
+    so the benchmark always has something to run.
+    """
+    import rinexpy as rp
+    from rinexpy.interp import interpolate_sp3
+
+    igs_path = Path("/tmp/igs_real_cache/igs20010.sp3")
+    bundled = Path(__file__).resolve().parent.parent / "tests" / "data" / "igs19362.sp3c"
+    sp3_path = igs_path if igs_path.exists() else bundled
+    print(f"\n== SP3 Lagrange interpolation (order=10) ==")
+    print(f"  corpus: {sp3_path.name}")
+
+    sp3 = rp.load_sp3(sp3_path)
+    # Sample 1000 query times evenly across the interior.
+    t0 = sp3.time.values[5].astype("datetime64[ns]").astype("int64")
+    tn = sp3.time.values[-5].astype("datetime64[ns]").astype("int64")
+    queries = np.linspace(t0, tn, 1000).astype("int64").astype("datetime64[ns]")
+
+    # Force pure-Python.
+    _native.have_interpolate_sp3 = lambda: False
+    t_py = _median_of(lambda: interpolate_sp3(sp3, queries), n=3)
+    _native.have_interpolate_sp3 = (
+        lambda: _native._interpolate_sp3_lagrange is not None
+    )
+    t_cpp = _median_of(lambda: interpolate_sp3(sp3, queries), n=5)
+    n_sv = sp3.position.shape[1]
+    print(f"  1000 queries x {n_sv} SVs    py {t_py*1e3:7.2f} ms    "
+          f"cpp {t_cpp*1e3:7.2f} ms    {t_py/t_cpp:6.1f}x")
+
+
 def main() -> None:
     if not _native.have_crc24q():
         print("rinexpy_native is missing. From the repo root:")
@@ -230,9 +263,11 @@ def main() -> None:
     print(f"rinexpy_native available: crc24q={_native.have_crc24q()}, "
           f"read_bits={_native.have_read_bits()}, "
           f"lambda_ils={_native.have_lambda_ils()}, "
-          f"decode_msm={_native.have_decode_msm()}")
+          f"decode_msm={_native.have_decode_msm()}, "
+          f"interpolate_sp3={_native.have_interpolate_sp3()}")
     bench_rtcm3()
     bench_lambda()
+    bench_interp_sp3()
 
 
 if __name__ == "__main__":
