@@ -16,6 +16,7 @@ Kernels currently shipped:
 | `read_bits`           | `rinexpy.rtcm3._bits` (MSB-first bit cursor) | ~9x; with `_bits` alone, `iter_messages` ~5-6x |
 | `decode_msm`          | `rinexpy.rtcm3._decode_msm_header` (full MSM frame body) | end-to-end `iter_messages` ~9x |
 | `lambda_ils`          | `rinexpy.lambda_ar.integer_least_squares`    | 30-220x depending on n |
+| `interpolate_sp3_lagrange` | `rinexpy.interp.interpolate_sp3` (order-N Lagrange) | ~43x on 1000 queries x 32 SVs |
 
 ## Separate package
 
