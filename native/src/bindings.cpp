@@ -11,6 +11,7 @@
 #include "lagrange_sp3.hpp"
 #include "lambda_ils.hpp"
 #include "msm_decode.hpp"
+#include "nav_subframes.hpp"
 
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
@@ -238,6 +239,111 @@ nb::dict decode_msm_py(nb::bytes body, int msm_kind) {
     return d;
 }
 
+// GPS LNAV subframe decoder. Wraps decode_lnav_subframe and packs the
+// per-subframe fields into the dict shape rinexpy.gps_lnav emits.
+nb::dict decode_lnav_subframe_py(
+        nb::ndarray<const std::uint32_t, nb::ndim<1>, nb::c_contig,
+                    nb::device::cpu> words,
+        int expected_id) {
+    if (words.size() < 10) {
+        throw std::invalid_argument("LNAV subframe needs 10 words");
+    }
+    rinexpy_native::LnavSubframe r = rinexpy_native::decode_lnav_subframe(
+        words.data(), expected_id);
+    nb::dict d;
+    d["subframe_id"] = r.subframe_id;
+    d["tow_count"] = r.tow_count;
+    if (expected_id == 1) {
+        d["week"] = r.week;
+        d["ca_or_p_on_l2"] = r.ca_or_p_on_l2;
+        d["URA"] = r.ura;
+        d["SV_health"] = r.sv_health;
+        d["IODC"] = r.iodc;
+        d["L2_P_data_flag"] = r.l2_p_data_flag;
+        d["T_GD_s"] = r.tgd_s;
+        d["t_oc_s"] = r.toc_s;
+        d["a_f0_s"] = r.af0_s;
+        d["a_f1_s_per_s"] = r.af1_s_per_s;
+        d["a_f2_s_per_s2"] = r.af2_s_per_s2;
+    } else if (expected_id == 2) {
+        d["IODE"] = r.iode2;
+        d["C_rs_m"] = r.crs_m;
+        d["delta_n_rad_s"] = r.delta_n_rad_s;
+        d["M_0_rad"] = r.m0_rad;
+        d["C_uc_rad"] = r.cuc_rad;
+        d["e"] = r.e_;
+        d["C_us_rad"] = r.cus_rad;
+        d["sqrt_A_root_m"] = r.sqrt_a_root_m;
+        d["t_oe_s"] = r.toe_s;
+        d["fit_interval_flag"] = r.fit_interval_flag;
+        d["AODO"] = r.aodo;
+    } else {
+        d["C_ic_rad"] = r.cic_rad;
+        d["Omega_0_rad"] = r.omega0_rad;
+        d["C_is_rad"] = r.cis_rad;
+        d["i_0_rad"] = r.i0_rad;
+        d["C_rc_m"] = r.crc_m;
+        d["omega_rad"] = r.omega_rad;
+        d["Omega_dot_rad_s"] = r.omega_dot_rad_s;
+        d["IODE"] = r.iode3;
+        d["IDOT_rad_s"] = r.idot_rad_s;
+    }
+    return d;
+}
+
+// BeiDou D1 subframe 1.
+nb::dict decode_beidou_d1_sf1_py(
+        nb::ndarray<const std::uint32_t, nb::ndim<1>, nb::c_contig,
+                    nb::device::cpu> words) {
+    if (words.size() < 10) {
+        throw std::invalid_argument("BeiDou D1 subframe needs 10 words");
+    }
+    rinexpy_native::BeidouD1Sf1 r = rinexpy_native::decode_beidou_d1_sf1(
+        words.data());
+    nb::dict d;
+    d["subframe_id"] = r.subframe_id;
+    d["satH1"] = r.sat_h1;
+    d["AODC"] = r.aodc;
+    d["URAI"] = r.urai;
+    d["week"] = r.week;
+    d["t_oc_s"] = r.toc_s;
+    d["TGD1_s"] = r.tgd1_s;
+    d["TGD2_s"] = r.tgd2_s;
+    d["iono_alpha"] = nb::make_tuple(r.alpha0, r.alpha1, r.alpha2, r.alpha3);
+    d["iono_beta"] = nb::make_tuple(r.beta0, r.beta1, r.beta2, r.beta3);
+    d["a0_s"] = r.a0_s;
+    d["a1_s_per_s"] = r.a1_s_per_s;
+    d["a2_s_per_s2"] = r.a2_s_per_s2;
+    d["AODE"] = r.aode;
+    return d;
+}
+
+// BeiDou D2 page 1.
+nb::dict decode_beidou_d2_page1_py(
+        nb::ndarray<const std::uint32_t, nb::ndim<1>, nb::c_contig,
+                    nb::device::cpu> words) {
+    if (words.size() < 10) {
+        throw std::invalid_argument("BeiDou D2 page needs 10 words");
+    }
+    rinexpy_native::BeidouD2P1 r = rinexpy_native::decode_beidou_d2_page1(
+        words.data());
+    nb::dict d;
+    d["page_num"] = r.page;
+    d["subframe_id"] = r.subframe_id;
+    d["satH1"] = r.sat_h1;
+    d["AODC"] = r.aodc;
+    d["URAI"] = r.urai;
+    d["week"] = r.week;
+    d["t_oc_s"] = r.toc_s;
+    d["TGD1_s"] = r.tgd1_s;
+    d["TGD2_s"] = r.tgd2_s;
+    d["a0_s"] = r.a0_s;
+    d["a1_s_per_s"] = r.a1_s_per_s;
+    d["a2_s_per_s2"] = r.a2_s_per_s2;
+    d["AODE"] = r.aode;
+    return d;
+}
+
 // MSB-first bit extraction. Numerical contract identical to
 // rinexpy.rtcm3._bits: unsigned by default, sign-extend when
 // is_signed=True. n_bits must be in [0, 64]. Returns a Python int so
@@ -327,4 +433,25 @@ NB_MODULE(_ext, m) {
         "satellite positions. Returns a fresh (n_q, n_sv, 3) float64\n"
         "ndarray. src_t / query are int64 ns since epoch; pos is\n"
         "(n_src, n_sv, 3) row-major float64.");
+
+    m.def(
+        "decode_lnav_subframe",
+        &decode_lnav_subframe_py,
+        nb::arg("words"),
+        nb::arg("expected_id"),
+        "Decode a GPS LNAV subframe (id 1, 2, or 3). `words` is the 10\n"
+        "raw 30-bit ints; the kernel strips parity internally. Returns\n"
+        "the same dict shape rinexpy.gps_lnav emits.");
+
+    m.def(
+        "decode_beidou_d1_sf1",
+        &decode_beidou_d1_sf1_py,
+        nb::arg("words"),
+        "Decode a BeiDou D1 subframe 1 (clock + ionosphere).");
+
+    m.def(
+        "decode_beidou_d2_page1",
+        &decode_beidou_d2_page1_py,
+        nb::arg("words"),
+        "Decode a BeiDou D2 page 1 (clock parameters, GEO 500 bps).");
 }

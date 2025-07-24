@@ -26,6 +26,9 @@ from __future__ import annotations
 
 from ._ext import (
     crc24q,
+    decode_beidou_d1_sf1,
+    decode_beidou_d2_page1,
+    decode_lnav_subframe,
     decode_msm,
     decode_obs_batch,
     interpolate_sp3_lagrange,
@@ -38,6 +41,9 @@ __version__ = "0.1.0"
 __all__ = [
     "__version__",
     "crc24q",
+    "decode_beidou_d1_sf1",
+    "decode_beidou_d2_page1",
+    "decode_lnav_subframe",
     "decode_msm",
     "decode_obs_batch",
     "interpolate_sp3_lagrange",

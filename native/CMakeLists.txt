@@ -38,6 +38,7 @@ nanobind_add_module(
     src/lagrange_sp3.cpp
     src/lambda_ils.cpp
     src/msm_decode.cpp
+    src/nav_subframes.cpp
     src/bindings.cpp
 )
 
