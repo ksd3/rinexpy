@@ -64,6 +64,18 @@ try:
 except ImportError:  # pragma: no cover
     _interpolate_sp3_lagrange = None  # type: ignore[assignment]
 
+# GPS LNAV + BeiDou subframe decoders.
+try:
+    from rinexpy_native import (  # type: ignore[attr-defined]
+        decode_beidou_d1_sf1 as _decode_beidou_d1_sf1,
+        decode_beidou_d2_page1 as _decode_beidou_d2_page1,
+        decode_lnav_subframe as _decode_lnav_subframe,
+    )
+except ImportError:  # pragma: no cover
+    _decode_beidou_d1_sf1 = None  # type: ignore[assignment]
+    _decode_beidou_d2_page1 = None  # type: ignore[assignment]
+    _decode_lnav_subframe = None  # type: ignore[assignment]
+
 
 def is_available() -> bool:
     """Return ``True`` if ``rinexpy_native`` is importable in this Python."""
@@ -155,6 +167,51 @@ def interpolate_sp3_lagrange(src_t, pos, query, span: int):
             "rebuild rinexpy-native >= 0.2.0 via `uv sync --extra native`."
         )
     return _interpolate_sp3_lagrange(src_t, pos, query, int(span))
+
+
+def have_decode_lnav_subframe() -> bool:
+    """Return ``True`` if the C++ GPS LNAV decoder is available."""
+    return _decode_lnav_subframe is not None
+
+
+def decode_lnav_subframe(words, expected_id: int):
+    """Decode a GPS LNAV subframe via the C++ kernel."""
+    if _decode_lnav_subframe is None:
+        raise ImportError(
+            "rinexpy_native.decode_lnav_subframe is not installed; "
+            "rebuild rinexpy-native >= 0.2.0 via `uv sync --extra native`."
+        )
+    return _decode_lnav_subframe(words, int(expected_id))
+
+
+def have_decode_beidou_d1_sf1() -> bool:
+    """Return ``True`` if the C++ BeiDou D1 sf1 decoder is available."""
+    return _decode_beidou_d1_sf1 is not None
+
+
+def decode_beidou_d1_sf1(words):
+    """Decode a BeiDou D1 subframe 1 via the C++ kernel."""
+    if _decode_beidou_d1_sf1 is None:
+        raise ImportError(
+            "rinexpy_native.decode_beidou_d1_sf1 is not installed; "
+            "rebuild rinexpy-native >= 0.2.0 via `uv sync --extra native`."
+        )
+    return _decode_beidou_d1_sf1(words)
+
+
+def have_decode_beidou_d2_page1() -> bool:
+    """Return ``True`` if the C++ BeiDou D2 page1 decoder is available."""
+    return _decode_beidou_d2_page1 is not None
+
+
+def decode_beidou_d2_page1(words):
+    """Decode a BeiDou D2 page 1 via the C++ kernel."""
+    if _decode_beidou_d2_page1 is None:
+        raise ImportError(
+            "rinexpy_native.decode_beidou_d2_page1 is not installed; "
+            "rebuild rinexpy-native >= 0.2.0 via `uv sync --extra native`."
+        )
+    return _decode_beidou_d2_page1(words)
 
 
 def lambda_ils(a_float, Q, n_cands: int, max_nodes: int,

@@ -26,6 +26,10 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
+
+from . import _native
+
 #: GPS LNAV 8-bit preamble (1000 1011).
 PREAMBLE = 0x8B
 
@@ -80,6 +84,24 @@ def _tow(data: str) -> int:
     return _bits(data, 24, 17)
 
 
+def _dispatch_native(words: list[int], expected_id: int) -> dict[str, Any]:
+    """Forward a subframe through the C++ kernel; mirror the Python
+    error-path messages so callers can't tell which path executed."""
+    try:
+        return _native.decode_lnav_subframe(
+            np.asarray(words, dtype=np.uint32), expected_id
+        )
+    except Exception as e:  # nanobind raises std::invalid_argument as ValueError
+        msg = str(e)
+        if "preamble" in msg.lower():
+            raise ValueError(f"bad GPS LNAV preamble") from None
+        if "id mismatch" in msg.lower() or "expected" in msg.lower():
+            raise ValueError(
+                f"expected subframe {expected_id}, got mismatch"
+            ) from None
+        raise
+
+
 def decode_lnav_subframe1(words: list[int]) -> dict[str, Any]:
     """Decode LNAV subframe 1 (clock, T_GD, week, IODC).
 
@@ -100,6 +122,10 @@ def decode_lnav_subframe1(words: list[int]) -> dict[str, Any]:
     ValueError
         If the preamble or subframe ID don't match.
     """
+    if len(words) < 10:
+        raise ValueError("LNAV subframe needs 10 words")
+    if _native.have_decode_lnav_subframe():
+        return _dispatch_native(words, 1)
     data = _strip_parity(words)
     sf = _check_preamble_and_id(data, 1)
 
@@ -145,6 +171,10 @@ def decode_lnav_subframe2(words: list[int]) -> dict[str, Any]:
     Returns IODE, M_0, e, sqrt(A), C_uc, C_us, delta_n, t_oe in SI
     units per ICD-GPS-200 Table 20-II.
     """
+    if len(words) < 10:
+        raise ValueError("LNAV subframe needs 10 words")
+    if _native.have_decode_lnav_subframe():
+        return _dispatch_native(words, 2)
     data = _strip_parity(words)
     sf = _check_preamble_and_id(data, 2)
 
@@ -193,6 +223,10 @@ def decode_lnav_subframe3(words: list[int]) -> dict[str, Any]:
     Returns C_ic, Omega_0, C_is, i_0, C_rc, omega, Omega_dot, IODE,
     IDOT in SI units per ICD-GPS-200 Table 20-III.
     """
+    if len(words) < 10:
+        raise ValueError("LNAV subframe needs 10 words")
+    if _native.have_decode_lnav_subframe():
+        return _dispatch_native(words, 3)
     data = _strip_parity(words)
     sf = _check_preamble_and_id(data, 3)
 

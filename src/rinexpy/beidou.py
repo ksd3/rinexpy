@@ -23,6 +23,10 @@ from __future__ import annotations
 
 from typing import Any
 
+import numpy as np
+
+from . import _native
+
 #: BeiDou nav-message preamble (11 bits, 0x712 = 11100010010).
 PREAMBLE = 0x712
 
@@ -78,6 +82,19 @@ def decode_d1_subframe1(words: list[int]) -> dict[str, Any]:
     """
     if len(words) < 10:
         raise ValueError("D1 subframe needs 10 words")
+    if _native.have_decode_beidou_d1_sf1():
+        try:
+            return _native.decode_beidou_d1_sf1(
+                np.asarray(words, dtype=np.uint32))
+        except Exception as e:
+            msg = str(e).lower()
+            if "preamble" in msg:
+                raise ValueError(
+                    f"bad BeiDou preamble (native)"
+                ) from None
+            if "subframe" in msg:
+                raise ValueError(f"expected subframe 1 (native)") from None
+            raise
     data = _strip_parity(words)
 
     # All offsets below are into the parity-stripped data bitstring.
@@ -169,6 +186,21 @@ def decode_d2_page1(words: list[int]) -> dict[str, Any]:
     """
     if len(words) < 10:
         raise ValueError("D2 page needs 10 words")
+    if _native.have_decode_beidou_d2_page1():
+        try:
+            return _native.decode_beidou_d2_page1(
+                np.asarray(words, dtype=np.uint32))
+        except Exception as e:
+            msg = str(e).lower()
+            if "preamble" in msg:
+                raise ValueError(
+                    f"bad BeiDou preamble (native)"
+                ) from None
+            if "frame" in msg or "page" in msg:
+                raise ValueError(
+                    f"expected D2 frame=1 page=1 (native)"
+                ) from None
+            raise
     data = _strip_parity(words)
 
     # Word 1 of D2 has the same Pre/Rev/SOW/FraID/parity layout as D1.
