@@ -239,17 +239,18 @@ nb::dict decode_msm_py(nb::bytes body, int msm_kind) {
     return d;
 }
 
-// GPS LNAV subframe decoder. Wraps decode_lnav_subframe and packs the
-// per-subframe fields into the dict shape rinexpy.gps_lnav emits.
-nb::dict decode_lnav_subframe_py(
-        nb::ndarray<const std::uint32_t, nb::ndim<1>, nb::c_contig,
-                    nb::device::cpu> words,
-        int expected_id) {
-    if (words.size() < 10) {
-        throw std::invalid_argument("LNAV subframe needs 10 words");
+// GPS LNAV subframe decoder. Accepts the 10 30-bit words as a
+// 40-byte little-endian bytes object (struct.pack('<10I', *words))
+// — cheaper than np.asarray for the small fixed-length input.
+nb::dict decode_lnav_subframe_py(nb::bytes words_bytes, int expected_id) {
+    if (words_bytes.size() < 40) {
+        throw std::invalid_argument(
+            "LNAV subframe needs 10 little-endian uint32 (40 bytes)");
     }
+    std::uint32_t words[10];
+    std::memcpy(words, words_bytes.c_str(), 40);
     rinexpy_native::LnavSubframe r = rinexpy_native::decode_lnav_subframe(
-        words.data(), expected_id);
+        words, expected_id);
     nb::dict d;
     d["subframe_id"] = r.subframe_id;
     d["tow_count"] = r.tow_count;
@@ -292,14 +293,15 @@ nb::dict decode_lnav_subframe_py(
 }
 
 // BeiDou D1 subframe 1.
-nb::dict decode_beidou_d1_sf1_py(
-        nb::ndarray<const std::uint32_t, nb::ndim<1>, nb::c_contig,
-                    nb::device::cpu> words) {
-    if (words.size() < 10) {
-        throw std::invalid_argument("BeiDou D1 subframe needs 10 words");
+nb::dict decode_beidou_d1_sf1_py(nb::bytes words_bytes) {
+    if (words_bytes.size() < 40) {
+        throw std::invalid_argument(
+            "BeiDou D1 subframe needs 10 little-endian uint32 (40 bytes)");
     }
+    std::uint32_t words[10];
+    std::memcpy(words, words_bytes.c_str(), 40);
     rinexpy_native::BeidouD1Sf1 r = rinexpy_native::decode_beidou_d1_sf1(
-        words.data());
+        words);
     nb::dict d;
     d["subframe_id"] = r.subframe_id;
     d["satH1"] = r.sat_h1;
@@ -319,14 +321,15 @@ nb::dict decode_beidou_d1_sf1_py(
 }
 
 // BeiDou D2 page 1.
-nb::dict decode_beidou_d2_page1_py(
-        nb::ndarray<const std::uint32_t, nb::ndim<1>, nb::c_contig,
-                    nb::device::cpu> words) {
-    if (words.size() < 10) {
-        throw std::invalid_argument("BeiDou D2 page needs 10 words");
+nb::dict decode_beidou_d2_page1_py(nb::bytes words_bytes) {
+    if (words_bytes.size() < 40) {
+        throw std::invalid_argument(
+            "BeiDou D2 page needs 10 little-endian uint32 (40 bytes)");
     }
+    std::uint32_t words[10];
+    std::memcpy(words, words_bytes.c_str(), 40);
     rinexpy_native::BeidouD2P1 r = rinexpy_native::decode_beidou_d2_page1(
-        words.data());
+        words);
     nb::dict d;
     d["page_num"] = r.page;
     d["subframe_id"] = r.subframe_id;

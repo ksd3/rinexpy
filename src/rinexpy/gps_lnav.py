@@ -24,11 +24,14 @@ firmware that produced the words has already verified it.
 
 from __future__ import annotations
 
+import struct
 from typing import Any
 
-import numpy as np
-
 from . import _native
+
+# Pre-compiled struct for packing the 10 30-bit words into a 40-byte
+# little-endian buffer that the native binding can memcpy directly.
+_PACK_10_U32 = struct.Struct("<10I")
 
 #: GPS LNAV 8-bit preamble (1000 1011).
 PREAMBLE = 0x8B
@@ -89,7 +92,7 @@ def _dispatch_native(words: list[int], expected_id: int) -> dict[str, Any]:
     error-path messages so callers can't tell which path executed."""
     try:
         return _native.decode_lnav_subframe(
-            np.asarray(words, dtype=np.uint32), expected_id
+            _PACK_10_U32.pack(*words[:10]), expected_id,
         )
     except Exception as e:  # nanobind raises std::invalid_argument as ValueError
         msg = str(e)

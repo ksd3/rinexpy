@@ -21,11 +21,14 @@ parity — that's the receiver's job.
 
 from __future__ import annotations
 
+import struct
 from typing import Any
 
-import numpy as np
-
 from . import _native
+
+# Pre-compiled struct for packing 10 30-bit words into a 40-byte
+# little-endian buffer for the native binding.
+_PACK_10_U32 = struct.Struct("<10I")
 
 #: BeiDou nav-message preamble (11 bits, 0x712 = 11100010010).
 PREAMBLE = 0x712
@@ -85,7 +88,7 @@ def decode_d1_subframe1(words: list[int]) -> dict[str, Any]:
     if _native.have_decode_beidou_d1_sf1():
         try:
             return _native.decode_beidou_d1_sf1(
-                np.asarray(words, dtype=np.uint32))
+                _PACK_10_U32.pack(*words[:10]))
         except Exception as e:
             msg = str(e).lower()
             if "preamble" in msg:
@@ -189,7 +192,7 @@ def decode_d2_page1(words: list[int]) -> dict[str, Any]:
     if _native.have_decode_beidou_d2_page1():
         try:
             return _native.decode_beidou_d2_page1(
-                np.asarray(words, dtype=np.uint32))
+                _PACK_10_U32.pack(*words[:10]))
         except Exception as e:
             msg = str(e).lower()
             if "preamble" in msg:

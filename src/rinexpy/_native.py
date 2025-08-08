@@ -174,14 +174,19 @@ def have_decode_lnav_subframe() -> bool:
     return _decode_lnav_subframe is not None
 
 
-def decode_lnav_subframe(words, expected_id: int):
-    """Decode a GPS LNAV subframe via the C++ kernel."""
+def decode_lnav_subframe(words_bytes: bytes, expected_id: int):
+    """Decode a GPS LNAV subframe via the C++ kernel.
+
+    `words_bytes` is the 10 30-bit words packed as little-endian
+    uint32 (40 bytes), typically produced by
+    ``struct.pack('<10I', *words)``.
+    """
     if _decode_lnav_subframe is None:
         raise ImportError(
             "rinexpy_native.decode_lnav_subframe is not installed; "
             "rebuild rinexpy-native >= 0.2.0 via `uv sync --extra native`."
         )
-    return _decode_lnav_subframe(words, int(expected_id))
+    return _decode_lnav_subframe(words_bytes, int(expected_id))
 
 
 def have_decode_beidou_d1_sf1() -> bool:
@@ -189,14 +194,18 @@ def have_decode_beidou_d1_sf1() -> bool:
     return _decode_beidou_d1_sf1 is not None
 
 
-def decode_beidou_d1_sf1(words):
-    """Decode a BeiDou D1 subframe 1 via the C++ kernel."""
+def decode_beidou_d1_sf1(words_bytes: bytes):
+    """Decode a BeiDou D1 subframe 1 via the C++ kernel.
+
+    `words_bytes` is the 10 30-bit words packed as little-endian
+    uint32 (40 bytes).
+    """
     if _decode_beidou_d1_sf1 is None:
         raise ImportError(
             "rinexpy_native.decode_beidou_d1_sf1 is not installed; "
             "rebuild rinexpy-native >= 0.2.0 via `uv sync --extra native`."
         )
-    return _decode_beidou_d1_sf1(words)
+    return _decode_beidou_d1_sf1(words_bytes)
 
 
 def have_decode_beidou_d2_page1() -> bool:
@@ -204,14 +213,18 @@ def have_decode_beidou_d2_page1() -> bool:
     return _decode_beidou_d2_page1 is not None
 
 
-def decode_beidou_d2_page1(words):
-    """Decode a BeiDou D2 page 1 via the C++ kernel."""
+def decode_beidou_d2_page1(words_bytes: bytes):
+    """Decode a BeiDou D2 page 1 via the C++ kernel.
+
+    `words_bytes` is the 10 30-bit words packed as little-endian
+    uint32 (40 bytes).
+    """
     if _decode_beidou_d2_page1 is None:
         raise ImportError(
             "rinexpy_native.decode_beidou_d2_page1 is not installed; "
             "rebuild rinexpy-native >= 0.2.0 via `uv sync --extra native`."
         )
-    return _decode_beidou_d2_page1(words)
+    return _decode_beidou_d2_page1(words_bytes)
 
 
 def lambda_ils(a_float, Q, n_cands: int, max_nodes: int,
