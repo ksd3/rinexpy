@@ -255,6 +255,62 @@ def bench_interp_sp3() -> None:
           f"cpp {t_cpp*1e3:7.2f} ms    {t_py/t_cpp:6.1f}x")
 
 
+def bench_nav_subframes() -> None:
+    """Time GPS LNAV and BeiDou D1 subframe decode with / without native."""
+    import rinexpy.beidou as bd
+    import rinexpy.gps_lnav as ln
+
+    print("\n== Nav-message subframe decoders ==")
+
+    # LNAV subframe 1.
+    prefix = [
+        (ln.PREAMBLE, 8), (0, 14), (0, 2),
+        (0, 17), (0, 1), (0, 1), (1, 3), (0, 2),
+    ]
+    spec = prefix + [
+        (999, 10), (1, 2), (2, 4), (0, 6), (3, 2),
+        (0, 1), (0, 23),
+        (0, 24), (0, 24),
+        (0, 16), (0, 8), (0, 8), (0, 16),
+        (0, 8), (0, 16), (0, 22), (0, 2),
+    ]
+    words = ln.encode_lnav_words(spec)
+
+    _native.have_decode_lnav_subframe = lambda: False
+    t_py = _median_of(lambda: ln.decode_lnav_subframe1(words), n=5)
+    _native.have_decode_lnav_subframe = (
+        lambda: _native._decode_lnav_subframe is not None
+    )
+    t_cpp = _median_of(lambda: ln.decode_lnav_subframe1(words), n=5)
+    print(f"  LNAV sf1            py {t_py*1e6:7.2f} us    "
+          f"cpp {t_cpp*1e6:7.2f} us    {t_py/t_cpp:5.1f}x")
+
+    # BeiDou D1 subframe 1.
+    def _spec_at(offsets):
+        spec, cur = [], 0
+        for off in sorted(offsets):
+            v, n = offsets[off]
+            if off > cur:
+                spec.append((0, off - cur))
+            spec.append((v, n))
+            cur = off + n
+        return spec
+    bd_spec = _spec_at({
+        0: (bd.PREAMBLE, 11), 23: (1, 3), 38: (0, 1), 39: (5, 5),
+        44: (3, 4), 48: (1234, 13), 61: (1000, 17),
+    })
+    bd_words = bd.encode_subframe_words(bd_spec)
+
+    _native.have_decode_beidou_d1_sf1 = lambda: False
+    t_py = _median_of(lambda: bd.decode_d1_subframe1(bd_words), n=5)
+    _native.have_decode_beidou_d1_sf1 = (
+        lambda: _native._decode_beidou_d1_sf1 is not None
+    )
+    t_cpp = _median_of(lambda: bd.decode_d1_subframe1(bd_words), n=5)
+    print(f"  BeiDou D1 sf1       py {t_py*1e6:7.2f} us    "
+          f"cpp {t_cpp*1e6:7.2f} us    {t_py/t_cpp:5.1f}x")
+
+
 def main() -> None:
     if not _native.have_crc24q():
         print("rinexpy_native is missing. From the repo root:")
@@ -264,10 +320,12 @@ def main() -> None:
           f"read_bits={_native.have_read_bits()}, "
           f"lambda_ils={_native.have_lambda_ils()}, "
           f"decode_msm={_native.have_decode_msm()}, "
-          f"interpolate_sp3={_native.have_interpolate_sp3()}")
+          f"interpolate_sp3={_native.have_interpolate_sp3()}, "
+          f"nav_subframes={_native.have_decode_lnav_subframe()}")
     bench_rtcm3()
     bench_lambda()
     bench_interp_sp3()
+    bench_nav_subframes()
 
 
 if __name__ == "__main__":
