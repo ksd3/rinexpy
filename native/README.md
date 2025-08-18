@@ -17,6 +17,9 @@ Kernels currently shipped:
 | `decode_msm`          | `rinexpy.rtcm3._decode_msm_header` (full MSM frame body) | end-to-end `iter_messages` ~9x |
 | `lambda_ils`          | `rinexpy.lambda_ar.integer_least_squares`    | 30-220x depending on n |
 | `interpolate_sp3_lagrange` | `rinexpy.interp.interpolate_sp3` (order-N Lagrange) | ~43x on 1000 queries x 32 SVs |
+| `decode_lnav_subframe` | `rinexpy.gps_lnav.decode_lnav_subframe{1,2,3}` | ~3.6x per subframe (end-to-end via public API) |
+| `decode_beidou_d1_sf1` | `rinexpy.beidou.decode_d1_subframe1` | ~3.2x per subframe |
+| `decode_beidou_d2_page1` | `rinexpy.beidou.decode_d2_page1` | ~3.2x per subframe |
 
 ## Separate package
 
