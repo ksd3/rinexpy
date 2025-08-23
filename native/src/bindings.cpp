@@ -8,6 +8,7 @@
 #include "bit_cursor.hpp"
 #include "crc24q.hpp"
 #include "decode_obs_batch.hpp"
+#include "kalman_update.hpp"
 #include "lagrange_sp3.hpp"
 #include "lambda_ils.hpp"
 #include "msm_decode.hpp"
@@ -239,6 +240,35 @@ nb::dict decode_msm_py(nb::bytes body, int msm_kind) {
     return d;
 }
 
+// Kalman EKF scalar update. `x` and `P` are modified in place; the
+// Python caller binds these directly to filter.x / filter.P so no
+// copy round-trip is needed.
+void kalman_scalar_update_py(
+        nb::ndarray<double, nb::ndim<1>, nb::c_contig, nb::device::cpu> x,
+        nb::ndarray<double, nb::ndim<2>, nb::c_contig, nb::device::cpu> P,
+        nb::ndarray<const double, nb::ndim<1>, nb::c_contig, nb::device::cpu> u,
+        bool is_phase, int sv_index,
+        double obs, double rho, double r) {
+    const std::size_t n = x.size();
+    if (P.shape(0) != n || P.shape(1) != n) {
+        throw std::invalid_argument("P must be (n, n) matching x size");
+    }
+    if (u.size() != 3) {
+        throw std::invalid_argument("u must be length 3");
+    }
+    if (n < 4) {
+        throw std::invalid_argument("state dim n must be >= 4");
+    }
+    if (is_phase && (sv_index < 0
+                     || static_cast<std::size_t>(4 + sv_index) >= n)) {
+        throw std::invalid_argument("sv_index out of range for phase update");
+    }
+    rinexpy_native::kalman_scalar_update_static_ppp(
+        x.data(), P.data(), n,
+        u.data(), is_phase, sv_index,
+        obs, rho, r);
+}
+
 // GPS LNAV subframe decoder. Accepts the 10 30-bit words as a
 // 40-byte little-endian bytes object (struct.pack('<10I', *words))
 // — cheaper than np.asarray for the small fixed-length input.
@@ -457,4 +487,15 @@ NB_MODULE(_ext, m) {
         &decode_beidou_d2_page1_py,
         nb::arg("words"),
         "Decode a BeiDou D2 page 1 (clock parameters, GEO 500 bps).");
+
+    m.def(
+        "kalman_scalar_update_static_ppp",
+        &kalman_scalar_update_py,
+        nb::arg("x"), nb::arg("P"),
+        nb::arg("u"), nb::arg("is_phase"), nb::arg("sv_index"),
+        nb::arg("obs"), nb::arg("rho"), nb::arg("r"),
+        "Joseph-form scalar EKF update for the static PPP filter state\n"
+        "[px, py, pz, c*dt, N_1, ..., N_n_sv]. Modifies x and P in\n"
+        "place. Exploits the sparse structure of H to run in O(n^2)\n"
+        "instead of the O(n^3) the pure-Python implementation pays.");
 }

@@ -36,6 +36,7 @@ nanobind_add_module(
     src/decode_obs_batch.cpp
     src/crc24q.cpp
     src/lagrange_sp3.cpp
+    src/kalman_update.cpp
     src/lambda_ils.cpp
     src/msm_decode.cpp
     src/nav_subframes.cpp
