@@ -76,6 +76,14 @@ except ImportError:  # pragma: no cover
     _decode_beidou_d2_page1 = None  # type: ignore[assignment]
     _decode_lnav_subframe = None  # type: ignore[assignment]
 
+# Scalar EKF update kernel for the static PPP filter.
+try:
+    from rinexpy_native import (  # type: ignore[attr-defined]
+        kalman_scalar_update_static_ppp as _kalman_scalar_update_static_ppp,
+    )
+except ImportError:  # pragma: no cover
+    _kalman_scalar_update_static_ppp = None  # type: ignore[assignment]
+
 
 def is_available() -> bool:
     """Return ``True`` if ``rinexpy_native`` is importable in this Python."""
@@ -211,6 +219,25 @@ def decode_beidou_d1_sf1(words_bytes: bytes):
 def have_decode_beidou_d2_page1() -> bool:
     """Return ``True`` if the C++ BeiDou D2 page1 decoder is available."""
     return _decode_beidou_d2_page1 is not None
+
+
+def have_kalman_scalar_update() -> bool:
+    """Return ``True`` if the C++ scalar-update kernel is available."""
+    return _kalman_scalar_update_static_ppp is not None
+
+
+def kalman_scalar_update_static_ppp(x, P, u, is_phase: bool, sv_index: int,
+                                    obs: float, rho: float, r: float) -> None:
+    """In-place Joseph-form scalar EKF update via the C++ kernel."""
+    if _kalman_scalar_update_static_ppp is None:
+        raise ImportError(
+            "rinexpy_native.kalman_scalar_update_static_ppp is not installed; "
+            "rebuild rinexpy-native >= 0.2.0 via `uv sync --extra native`."
+        )
+    _kalman_scalar_update_static_ppp(
+        x, P, u, bool(is_phase), int(sv_index), float(obs), float(rho),
+        float(r),
+    )
 
 
 def decode_beidou_d2_page1(words_bytes: bytes):
