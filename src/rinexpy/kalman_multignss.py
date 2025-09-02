@@ -29,6 +29,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from . import _native
+
 _C = 299_792_458.0
 
 
@@ -275,27 +277,51 @@ class StaticPPPFilterMultiGNSS:
         rho: float,
         m_wet: float,
     ) -> None:
+        isb_idx = self._isb_index_for_sv(sv_index)
+        isb_val = self._isb_value_for_sv(sv_index)
+        if code:
+            r = self.sigma_code ** 2
+            pred = rho + self.x[self._idx_clock] + m_wet * self.x[self._idx_zwd] + isb_val
+        else:
+            amb_idx = self._idx_amb_start + sv_index
+            r = self.sigma_phase ** 2
+            pred = (
+                rho + self.x[self._idx_clock] + m_wet * self.x[self._idx_zwd]
+                + isb_val + self.x[amb_idx]
+            )
+        innovation = obs - pred
+
+        if _native.have_kalman_scalar_update():
+            # Build the sparse H spec: [0,1,2] = u (LoS), clock idx = 1,
+            # zwd idx = m_wet, optional ISB idx = 1, optional amb idx = 1.
+            idx_list = [0, 1, 2, self._idx_clock, self._idx_zwd]
+            val_list = [float(u[0]), float(u[1]), float(u[2]), 1.0, float(m_wet)]
+            if isb_idx is not None:
+                idx_list.append(isb_idx)
+                val_list.append(1.0)
+            if not code:
+                idx_list.append(self._idx_amb_start + sv_index)
+                val_list.append(1.0)
+            idx = np.asarray(idx_list, dtype=np.int32)
+            val = np.asarray(val_list, dtype=np.float64)
+            if not (self.x.flags.c_contiguous and self.x.dtype == np.float64):
+                self.x = np.ascontiguousarray(self.x, dtype=np.float64)
+            if not (self.P.flags.c_contiguous and self.P.dtype == np.float64):
+                self.P = np.ascontiguousarray(self.P, dtype=np.float64)
+            _native.kalman_scalar_update_sparse(
+                self.x, self.P, idx, val, float(innovation), r,
+            )
+            return
+
         n = self._n_state
         h = np.zeros(n)
         h[:3] = u
         h[self._idx_clock] = 1.0
         h[self._idx_zwd] = m_wet
-        isb_idx = self._isb_index_for_sv(sv_index)
         if isb_idx is not None:
             h[isb_idx] = 1.0
-        isb_val = self._isb_value_for_sv(sv_index)
-        if code:
-            pred = rho + self.x[self._idx_clock] + m_wet * self.x[self._idx_zwd] + isb_val
-            r = self.sigma_code ** 2
-        else:
-            amb_idx = self._idx_amb_start + sv_index
-            h[amb_idx] = 1.0
-            pred = (
-                rho + self.x[self._idx_clock] + m_wet * self.x[self._idx_zwd]
-                + isb_val + self.x[amb_idx]
-            )
-            r = self.sigma_phase ** 2
-        innovation = obs - pred
+        if not code:
+            h[self._idx_amb_start + sv_index] = 1.0
 
         ph = self.P @ h
         s = float(h @ ph + r)

@@ -24,6 +24,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from . import _native
+
 _C = 299_792_458.0
 
 
@@ -244,19 +246,38 @@ class StaticPPPFilterZTD:
         rho: float,
         m_wet: float,
     ) -> None:
+        if code:
+            r = self.sigma_code ** 2
+            pred = rho + self.x[3] + m_wet * self.x[4]
+        else:
+            r = self.sigma_phase ** 2
+            pred = rho + self.x[3] + m_wet * self.x[4] + self.x[5 + sv_index]
+        innovation = obs - pred
+
+        if _native.have_kalman_scalar_update():
+            if code:
+                idx = np.array([0, 1, 2, 3, 4], dtype=np.int32)
+                val = np.array([u[0], u[1], u[2], 1.0, m_wet], dtype=np.float64)
+            else:
+                idx = np.array([0, 1, 2, 3, 4, 5 + sv_index], dtype=np.int32)
+                val = np.array([u[0], u[1], u[2], 1.0, m_wet, 1.0],
+                               dtype=np.float64)
+            if not (self.x.flags.c_contiguous and self.x.dtype == np.float64):
+                self.x = np.ascontiguousarray(self.x, dtype=np.float64)
+            if not (self.P.flags.c_contiguous and self.P.dtype == np.float64):
+                self.P = np.ascontiguousarray(self.P, dtype=np.float64)
+            _native.kalman_scalar_update_sparse(
+                self.x, self.P, idx, val, float(innovation), r,
+            )
+            return
+
         n = self._n_state
         h = np.zeros(n)
         h[:3] = u
         h[3] = 1.0
         h[4] = m_wet     # ZWD column
-        if code:
-            pred = rho + self.x[3] + m_wet * self.x[4]
-            r = self.sigma_code ** 2
-        else:
+        if not code:
             h[5 + sv_index] = 1.0
-            pred = rho + self.x[3] + m_wet * self.x[4] + self.x[5 + sv_index]
-            r = self.sigma_phase ** 2
-        innovation = obs - pred
 
         ph = self.P @ h
         s = float(h @ ph + r)

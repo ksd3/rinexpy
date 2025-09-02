@@ -240,33 +240,37 @@ nb::dict decode_msm_py(nb::bytes body, int msm_kind) {
     return d;
 }
 
-// Kalman EKF scalar update. `x` and `P` are modified in place; the
-// Python caller binds these directly to filter.x / filter.P so no
-// copy round-trip is needed.
+// Generic Joseph-form scalar EKF update with sparse H. `x` and `P`
+// are modified in place. The caller passes the H sparsity pattern
+// (indices + values) plus the precomputed innovation.
 void kalman_scalar_update_py(
         nb::ndarray<double, nb::ndim<1>, nb::c_contig, nb::device::cpu> x,
         nb::ndarray<double, nb::ndim<2>, nb::c_contig, nb::device::cpu> P,
-        nb::ndarray<const double, nb::ndim<1>, nb::c_contig, nb::device::cpu> u,
-        bool is_phase, int sv_index,
-        double obs, double rho, double r) {
+        nb::ndarray<const std::int32_t, nb::ndim<1>, nb::c_contig,
+                    nb::device::cpu> h_indices,
+        nb::ndarray<const double, nb::ndim<1>, nb::c_contig, nb::device::cpu> h_values,
+        double innovation, double r) {
     const std::size_t n = x.size();
     if (P.shape(0) != n || P.shape(1) != n) {
         throw std::invalid_argument("P must be (n, n) matching x size");
     }
-    if (u.size() != 3) {
-        throw std::invalid_argument("u must be length 3");
+    if (h_indices.size() != h_values.size()) {
+        throw std::invalid_argument("h_indices and h_values must match length");
     }
-    if (n < 4) {
-        throw std::invalid_argument("state dim n must be >= 4");
+    const int hn = static_cast<int>(h_indices.size());
+    if (hn < 1 || hn > 32) {
+        throw std::invalid_argument("h sparsity hn must be in [1, 32]");
     }
-    if (is_phase && (sv_index < 0
-                     || static_cast<std::size_t>(4 + sv_index) >= n)) {
-        throw std::invalid_argument("sv_index out of range for phase update");
+    for (int a = 0; a < hn; ++a) {
+        const int idx = h_indices.data()[a];
+        if (idx < 0 || static_cast<std::size_t>(idx) >= n) {
+            throw std::invalid_argument("h_index out of range");
+        }
     }
-    rinexpy_native::kalman_scalar_update_static_ppp(
+    rinexpy_native::kalman_scalar_update_sparse(
         x.data(), P.data(), n,
-        u.data(), is_phase, sv_index,
-        obs, rho, r);
+        h_indices.data(), h_values.data(), hn,
+        innovation, r);
 }
 
 // GPS LNAV subframe decoder. Accepts the 10 30-bit words as a
@@ -489,13 +493,13 @@ NB_MODULE(_ext, m) {
         "Decode a BeiDou D2 page 1 (clock parameters, GEO 500 bps).");
 
     m.def(
-        "kalman_scalar_update_static_ppp",
+        "kalman_scalar_update_sparse",
         &kalman_scalar_update_py,
         nb::arg("x"), nb::arg("P"),
-        nb::arg("u"), nb::arg("is_phase"), nb::arg("sv_index"),
-        nb::arg("obs"), nb::arg("rho"), nb::arg("r"),
-        "Joseph-form scalar EKF update for the static PPP filter state\n"
-        "[px, py, pz, c*dt, N_1, ..., N_n_sv]. Modifies x and P in\n"
-        "place. Exploits the sparse structure of H to run in O(n^2)\n"
-        "instead of the O(n^3) the pure-Python implementation pays.");
+        nb::arg("h_indices"), nb::arg("h_values"),
+        nb::arg("innovation"), nb::arg("r"),
+        "Joseph-form scalar EKF update with sparse H. Modifies x and P\n"
+        "in place. h_indices/h_values describe the nonzero entries of\n"
+        "the measurement row; the caller pre-computes the innovation.\n"
+        "Runs in O(n^2) instead of the dense O(n^3) numpy version.");
 }

@@ -76,13 +76,13 @@ except ImportError:  # pragma: no cover
     _decode_beidou_d2_page1 = None  # type: ignore[assignment]
     _decode_lnav_subframe = None  # type: ignore[assignment]
 
-# Scalar EKF update kernel for the static PPP filter.
+# Generic Joseph-form scalar EKF update kernel.
 try:
     from rinexpy_native import (  # type: ignore[attr-defined]
-        kalman_scalar_update_static_ppp as _kalman_scalar_update_static_ppp,
+        kalman_scalar_update_sparse as _kalman_scalar_update_sparse,
     )
 except ImportError:  # pragma: no cover
-    _kalman_scalar_update_static_ppp = None  # type: ignore[assignment]
+    _kalman_scalar_update_sparse = None  # type: ignore[assignment]
 
 
 def is_available() -> bool:
@@ -223,20 +223,35 @@ def have_decode_beidou_d2_page1() -> bool:
 
 def have_kalman_scalar_update() -> bool:
     """Return ``True`` if the C++ scalar-update kernel is available."""
-    return _kalman_scalar_update_static_ppp is not None
+    return _kalman_scalar_update_sparse is not None
 
 
-def kalman_scalar_update_static_ppp(x, P, u, is_phase: bool, sv_index: int,
-                                    obs: float, rho: float, r: float) -> None:
-    """In-place Joseph-form scalar EKF update via the C++ kernel."""
-    if _kalman_scalar_update_static_ppp is None:
+def kalman_scalar_update_sparse(x, P, h_indices, h_values,
+                                innovation: float, r: float) -> None:
+    """In-place Joseph-form scalar EKF update via the C++ kernel.
+
+    Parameters
+    ----------
+    x, P:
+        State vector ``(n,)`` and covariance ``(n, n)`` — both float64
+        C-contiguous; modified in place.
+    h_indices:
+        ``(hn,)`` int32 array of column indices where H is nonzero.
+    h_values:
+        ``(hn,)`` float64 array of the corresponding H values.
+    innovation:
+        Pre-computed ``obs - pred`` (the prediction formula is
+        filter-specific so the caller supplies the result).
+    r:
+        Measurement variance (``sigma^2``).
+    """
+    if _kalman_scalar_update_sparse is None:
         raise ImportError(
-            "rinexpy_native.kalman_scalar_update_static_ppp is not installed; "
+            "rinexpy_native.kalman_scalar_update_sparse is not installed; "
             "rebuild rinexpy-native >= 0.2.0 via `uv sync --extra native`."
         )
-    _kalman_scalar_update_static_ppp(
-        x, P, u, bool(is_phase), int(sv_index), float(obs), float(rho),
-        float(r),
+    _kalman_scalar_update_sparse(
+        x, P, h_indices, h_values, float(innovation), float(r),
     )
 
 

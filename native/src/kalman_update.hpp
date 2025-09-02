@@ -20,24 +20,23 @@
 
 namespace rinexpy_native {
 
-// One PPP filter scalar update.
+// Generic Joseph-form scalar EKF update with sparse H.
 //
-// `x`           (n,)          state vector (will be updated in place)
-// `P`           (n, n) row-major covariance (updated in place)
+// `x`         (n,)            state (updated in place)
+// `P`         (n, n)          row-major covariance (updated in place)
 // `n`                          state dimension
-// `u`           (3,)            unit LoS vector from rx to SV (= -diff/rho)
-// `is_phase`                    false for code obs; true for phase
-// `sv_index`                    SV slot index when is_phase=true (-1 otherwise)
-// `obs`                          measurement value (already corrected for
-//                                sat clock + tropo etc.)
-// `rho`                          predicted geometric range
-// `r`                            measurement variance (sigma^2)
+// `h_indices` (hn,)            column indices of H's nonzero entries
+// `h_values`  (hn,)            H values at those columns
+// `hn`                          number of nonzeros (1..n)
+// `innovation`                  obs - pred (caller computes this since
+//                              the predicted-measurement formula is
+//                              filter-specific)
+// `r`                          measurement variance
 //
-// State layout assumed: x[0..3] = position + clock,
-// x[4 + sv_index] = iono-free ambiguity (when is_phase).
-void kalman_scalar_update_static_ppp(
+// O(n^2) instead of the O(n^3) the dense numpy version pays.
+void kalman_scalar_update_sparse(
     double* x, double* P, std::size_t n,
-    const double* u, bool is_phase, int sv_index,
-    double obs, double rho, double r) noexcept;
+    const int* h_indices, const double* h_values, int hn,
+    double innovation, double r) noexcept;
 
 }  // namespace rinexpy_native

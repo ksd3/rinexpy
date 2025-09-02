@@ -34,31 +34,11 @@ inline std::size_t IJ(std::size_t i, std::size_t j, std::size_t n) noexcept {
 
 }  // namespace
 
-void kalman_scalar_update_static_ppp(
+void kalman_scalar_update_sparse(
     double* x, double* P, std::size_t n,
-    const double* u, bool is_phase, int sv_index,
-    double obs, double rho, double r) noexcept {
-    // Predicted measurement.
-    double pred = rho + x[3];
-    if (is_phase && sv_index >= 0) {
-        pred += x[4 + sv_index];
-    }
-    const double innov = obs - pred;
-
-    // Sparse H: indices and values.
-    // Indices [0, 1, 2, 3] = u[0..2] + 1.0; optional [4 + sv_index] = 1.0.
-    int h_idx[5];
-    double h_val[5];
-    int hn = 4;
-    h_idx[0] = 0; h_val[0] = u[0];
-    h_idx[1] = 1; h_val[1] = u[1];
-    h_idx[2] = 2; h_val[2] = u[2];
-    h_idx[3] = 3; h_val[3] = 1.0;
-    if (is_phase && sv_index >= 0) {
-        h_idx[4] = 4 + sv_index;
-        h_val[4] = 1.0;
-        hn = 5;
-    }
+    const int* h_idx, const double* h_val, int hn,
+    double innov, double r) noexcept {
+    if (hn <= 0) return;
 
     // hp = H @ P; column-major access of P (P is symmetric so row=col).
     std::vector<double> hp(n, 0.0);

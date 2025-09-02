@@ -32,7 +32,7 @@ from ._ext import (
     decode_msm,
     decode_obs_batch,
     interpolate_sp3_lagrange,
-    kalman_scalar_update_static_ppp,
+    kalman_scalar_update_sparse,
     lambda_ils,
     read_bits,
 )
@@ -48,7 +48,7 @@ __all__ = [
     "decode_msm",
     "decode_obs_batch",
     "interpolate_sp3_lagrange",
-    "kalman_scalar_update_static_ppp",
+    "kalman_scalar_update_sparse",
     "lambda_ils",
     "read_bits",
 ]

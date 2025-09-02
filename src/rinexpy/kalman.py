@@ -390,18 +390,24 @@ class StaticPPPFilter:
         """
         r = self.sigma_code ** 2 if code else self.sigma_phase ** 2
         if _native.have_kalman_scalar_update():
-            # Ensure the buffers are contiguous float64 (numpy makes
-            # this cheap when they already are, which is the common
-            # case after the constructor).
+            # Build sparse-H spec for this filter: [0,1,2,3] always plus
+            # [4 + sv_index] for phase. Compute prediction here since
+            # state layout is filter-specific.
+            if code:
+                pred = rho + self.x[3]
+                idx = np.array([0, 1, 2, 3], dtype=np.int32)
+                val = np.array([u[0], u[1], u[2], 1.0], dtype=np.float64)
+            else:
+                pred = rho + self.x[3] + self.x[4 + sv_index]
+                idx = np.array([0, 1, 2, 3, 4 + sv_index], dtype=np.int32)
+                val = np.array([u[0], u[1], u[2], 1.0, 1.0], dtype=np.float64)
+            innovation = float(obs - pred)
             if not (self.x.flags.c_contiguous and self.x.dtype == np.float64):
                 self.x = np.ascontiguousarray(self.x, dtype=np.float64)
             if not (self.P.flags.c_contiguous and self.P.dtype == np.float64):
                 self.P = np.ascontiguousarray(self.P, dtype=np.float64)
-            _native.kalman_scalar_update_static_ppp(
-                self.x, self.P,
-                np.ascontiguousarray(u, dtype=np.float64),
-                not code, -1 if code else sv_index,
-                float(obs), float(rho), float(r),
+            _native.kalman_scalar_update_sparse(
+                self.x, self.P, idx, val, innovation, r,
             )
             return
 
