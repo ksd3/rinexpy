@@ -113,6 +113,16 @@ class StaticPPPFilter:
         # Per-SV previous Melbourne-Wuebbena value in wide-lane cycles,
         # used by update_with_slip_check.
         self._prev_mw_wl_cycles = np.full(n_sv, np.nan)
+        # Pre-allocated sparse-H buffers for the native dispatch path.
+        # We keep two buffers (code: 4-wide; phase: 5-wide) and mutate
+        # them per call instead of re-allocating tiny ndarrays.
+        self._h_idx_code = np.array([0, 1, 2, 3], dtype=np.int32)
+        self._h_val_code = np.zeros(4, dtype=np.float64)
+        self._h_val_code[3] = 1.0
+        self._h_idx_phase = np.array([0, 1, 2, 3, 0], dtype=np.int32)
+        self._h_val_phase = np.zeros(5, dtype=np.float64)
+        self._h_val_phase[3] = 1.0
+        self._h_val_phase[4] = 1.0
 
     @property
     def position(self) -> tuple[float, float, float]:
@@ -390,17 +400,23 @@ class StaticPPPFilter:
         """
         r = self.sigma_code ** 2 if code else self.sigma_phase ** 2
         if _native.have_kalman_scalar_update():
-            # Build sparse-H spec for this filter: [0,1,2,3] always plus
-            # [4 + sv_index] for phase. Compute prediction here since
-            # state layout is filter-specific.
+            # Mutate pre-allocated sparse-H buffers instead of allocating
+            # new ndarrays per call.
             if code:
                 pred = rho + self.x[3]
-                idx = np.array([0, 1, 2, 3], dtype=np.int32)
-                val = np.array([u[0], u[1], u[2], 1.0], dtype=np.float64)
+                self._h_val_code[0] = u[0]
+                self._h_val_code[1] = u[1]
+                self._h_val_code[2] = u[2]
+                idx = self._h_idx_code
+                val = self._h_val_code
             else:
                 pred = rho + self.x[3] + self.x[4 + sv_index]
-                idx = np.array([0, 1, 2, 3, 4 + sv_index], dtype=np.int32)
-                val = np.array([u[0], u[1], u[2], 1.0, 1.0], dtype=np.float64)
+                self._h_val_phase[0] = u[0]
+                self._h_val_phase[1] = u[1]
+                self._h_val_phase[2] = u[2]
+                self._h_idx_phase[4] = 4 + sv_index
+                idx = self._h_idx_phase
+                val = self._h_val_phase
             innovation = float(obs - pred)
             if not (self.x.flags.c_contiguous and self.x.dtype == np.float64):
                 self.x = np.ascontiguousarray(self.x, dtype=np.float64)

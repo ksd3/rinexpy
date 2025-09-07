@@ -311,6 +311,44 @@ def bench_nav_subframes() -> None:
           f"cpp {t_cpp*1e6:7.2f} us    {t_py/t_cpp:5.1f}x")
 
 
+def bench_kalman_update() -> None:
+    """Time the static-PPP scalar update with / without native dispatch.
+
+    Builds a realistic n_sv=20 state with an SPD covariance and runs
+    1000 sequential scalar updates (mix of code + phase). This mirrors
+    a ~10-minute 1 Hz multi-GNSS PPP replay.
+    """
+    import copy
+    from rinexpy.kalman import StaticPPPFilter
+
+    print("\n== Kalman scalar update (static PPP) ==")
+    n_sv = 20
+    rng = np.random.default_rng(0)
+    f = StaticPPPFilter(n_sv=n_sv, initial_position=(4e6, 2e6, 4e6))
+    f.P = np.random.default_rng(1).normal(size=(4 + n_sv, 4 + n_sv))
+    f.P = f.P @ f.P.T + np.eye(4 + n_sv) * 1e-3
+
+    us = [rng.normal(size=3) for _ in range(50)]
+    us = [u / np.linalg.norm(u) for u in us]
+    obs = [2e7 + rng.normal() for _ in range(50)]
+
+    def run():
+        g = copy.deepcopy(f)
+        for i in range(50):
+            for j in range(20):
+                g._scalar_update(us[i], code=True, sv_index=j % n_sv,
+                                  obs=obs[i], rho=2e7 + 5.0)
+
+    _native.have_kalman_scalar_update = lambda: False
+    t_py = _median_of(run, n=3)
+    _native.have_kalman_scalar_update = (
+        lambda: _native._kalman_scalar_update_sparse is not None
+    )
+    t_cpp = _median_of(run, n=5)
+    print(f"  1000 scalar updates (n=24)   py {t_py*1e3:7.2f} ms    "
+          f"cpp {t_cpp*1e3:7.2f} ms    {t_py/t_cpp:5.1f}x")
+
+
 def main() -> None:
     if not _native.have_crc24q():
         print("rinexpy_native is missing. From the repo root:")
@@ -326,6 +364,7 @@ def main() -> None:
     bench_lambda()
     bench_interp_sp3()
     bench_nav_subframes()
+    bench_kalman_update()
 
 
 if __name__ == "__main__":
