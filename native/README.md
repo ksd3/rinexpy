@@ -20,6 +20,7 @@ Kernels currently shipped:
 | `decode_lnav_subframe` | `rinexpy.gps_lnav.decode_lnav_subframe{1,2,3}` | ~3.6x per subframe (end-to-end via public API) |
 | `decode_beidou_d1_sf1` | `rinexpy.beidou.decode_d1_subframe1` | ~3.2x per subframe |
 | `decode_beidou_d2_page1` | `rinexpy.beidou.decode_d2_page1` | ~3.2x per subframe |
+| `kalman_scalar_update_sparse` | `StaticPPPFilter._scalar_update` (all 3 variants) | ~5.4x on 1000 updates (n=24) |
 
 ## Separate package
 
