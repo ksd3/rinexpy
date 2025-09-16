@@ -37,6 +37,7 @@ from typing import Any, Iterator
 
 import numpy as np
 
+from . import _native
 from .has import decode_has_message
 from .keplerian import keplerian2ecef
 from .rtcm3 import decode_message, iter_messages
@@ -187,8 +188,23 @@ class RealtimeOrbitClock:
         entry = self.ssr_orbit_for(prn)
         if entry is None or sv_velocity_ecef is None:
             return np.asarray(sv_ecef_broadcast, dtype=float)
-        r = np.asarray(sv_ecef_broadcast, dtype=float)
-        v = np.asarray(sv_velocity_ecef, dtype=float)
+        r = np.ascontiguousarray(sv_ecef_broadcast, dtype=float)
+        v = np.ascontiguousarray(sv_velocity_ecef, dtype=float)
+
+        if _native.have_apply_ssr():
+            rac0 = np.array(
+                [entry.radial_m, entry.along_m, entry.cross_m],
+                dtype=float,
+            )
+            racdot = np.array(
+                [entry.dot_radial_m_per_s, entry.dot_along_m_per_s,
+                 entry.dot_cross_m_per_s],
+                dtype=float,
+            )
+            return _native.apply_ssr_orbit_correction(
+                r, v, rac0, racdot, elapsed_s,
+            )
+
         # Radial / Along / Cross unit vectors.
         e_r = r / np.linalg.norm(r)
         h = np.cross(r, v)
@@ -209,6 +225,11 @@ class RealtimeOrbitClock:
         entry = self.ssr_clock_for(prn)
         if entry is None:
             return broadcast_clock_s
+        if _native.have_apply_ssr():
+            return _native.apply_ssr_clock_correction(
+                broadcast_clock_s, entry.c0_m, entry.c1_m_per_s,
+                entry.c2_m_per_s2, elapsed_s,
+            )
         delta_m = (
             entry.c0_m
             + entry.c1_m_per_s * elapsed_s

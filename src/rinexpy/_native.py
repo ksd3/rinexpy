@@ -84,6 +84,16 @@ try:
 except ImportError:  # pragma: no cover
     _kalman_scalar_update_sparse = None  # type: ignore[assignment]
 
+# SSR orbit + clock correction application kernels.
+try:
+    from rinexpy_native import (  # type: ignore[attr-defined]
+        apply_ssr_clock_correction as _apply_ssr_clock_correction,
+        apply_ssr_orbit_correction as _apply_ssr_orbit_correction,
+    )
+except ImportError:  # pragma: no cover
+    _apply_ssr_clock_correction = None  # type: ignore[assignment]
+    _apply_ssr_orbit_correction = None  # type: ignore[assignment]
+
 
 def is_available() -> bool:
     """Return ``True`` if ``rinexpy_native`` is importable in this Python."""
@@ -252,6 +262,36 @@ def kalman_scalar_update_sparse(x, P, h_indices, h_values,
         )
     _kalman_scalar_update_sparse(
         x, P, h_indices, h_values, float(innovation), float(r),
+    )
+
+
+def have_apply_ssr() -> bool:
+    """Return ``True`` if the C++ SSR-application kernels are available."""
+    return _apply_ssr_orbit_correction is not None
+
+
+def apply_ssr_orbit_correction(r_in, v_in, rac0, racdot, elapsed_s: float):
+    """In-place SSR orbit correction via the C++ kernel."""
+    if _apply_ssr_orbit_correction is None:
+        raise ImportError(
+            "rinexpy_native.apply_ssr_orbit_correction is not installed; "
+            "rebuild rinexpy-native >= 0.2.0 via `uv sync --extra native`."
+        )
+    return _apply_ssr_orbit_correction(r_in, v_in, rac0, racdot,
+                                       float(elapsed_s))
+
+
+def apply_ssr_clock_correction(broadcast_clock_s: float, c0: float, c1: float,
+                               c2: float, elapsed_s: float) -> float:
+    """SSR clock-polynomial correction via the C++ kernel."""
+    if _apply_ssr_clock_correction is None:
+        raise ImportError(
+            "rinexpy_native.apply_ssr_clock_correction is not installed; "
+            "rebuild rinexpy-native >= 0.2.0 via `uv sync --extra native`."
+        )
+    return _apply_ssr_clock_correction(
+        float(broadcast_clock_s), float(c0), float(c1), float(c2),
+        float(elapsed_s),
     )
 
 

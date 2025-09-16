@@ -40,6 +40,7 @@ nanobind_add_module(
     src/lambda_ils.cpp
     src/msm_decode.cpp
     src/nav_subframes.cpp
+    src/ssr_apply.cpp
     src/bindings.cpp
 )
 

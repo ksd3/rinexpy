@@ -13,6 +13,7 @@
 #include "lambda_ils.hpp"
 #include "msm_decode.hpp"
 #include "nav_subframes.hpp"
+#include "ssr_apply.hpp"
 
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
@@ -273,6 +274,39 @@ void kalman_scalar_update_py(
         innovation, r);
 }
 
+// SSR orbit correction in RAC frame -> ECEF. Returns a fresh (3,)
+// ndarray so the caller doesn't have to pre-allocate.
+nb::ndarray<nb::numpy, double, nb::ndim<1>, nb::device::cpu>
+apply_ssr_orbit_correction_py(
+        nb::ndarray<const double, nb::ndim<1>, nb::c_contig, nb::device::cpu> r_in,
+        nb::ndarray<const double, nb::ndim<1>, nb::c_contig, nb::device::cpu> v_in,
+        nb::ndarray<const double, nb::ndim<1>, nb::c_contig, nb::device::cpu> rac0,
+        nb::ndarray<const double, nb::ndim<1>, nb::c_contig, nb::device::cpu> racdot,
+        double elapsed_s) {
+    if (r_in.size() != 3 || v_in.size() != 3 || rac0.size() != 3 || racdot.size() != 3) {
+        throw std::invalid_argument(
+            "r_in, v_in, rac0, racdot must each be length 3");
+    }
+    double* out = new double[3];
+    rinexpy_native::apply_ssr_orbit_correction(
+        r_in.data(), v_in.data(), rac0.data(), racdot.data(),
+        elapsed_s, out);
+    std::size_t shape[1] = { 3 };
+    nb::capsule owner(out, [](void* p) noexcept {
+        delete[] static_cast<double*>(p);
+    });
+    return nb::ndarray<nb::numpy, double, nb::ndim<1>, nb::device::cpu>(
+        out, 1, shape, owner);
+}
+
+// SSR clock correction. Scalar in, scalar out.
+double apply_ssr_clock_correction_py(double broadcast_clock_s,
+                                     double c0, double c1, double c2,
+                                     double elapsed_s) {
+    return rinexpy_native::apply_ssr_clock_correction(
+        broadcast_clock_s, c0, c1, c2, elapsed_s);
+}
+
 // GPS LNAV subframe decoder. Accepts the 10 30-bit words as a
 // 40-byte little-endian bytes object (struct.pack('<10I', *words))
 // — cheaper than np.asarray for the small fixed-length input.
@@ -502,4 +536,23 @@ NB_MODULE(_ext, m) {
         "in place. h_indices/h_values describe the nonzero entries of\n"
         "the measurement row; the caller pre-computes the innovation.\n"
         "Runs in O(n^2) instead of the dense O(n^3) numpy version.");
+
+    m.def(
+        "apply_ssr_orbit_correction",
+        &apply_ssr_orbit_correction_py,
+        nb::arg("r_in"), nb::arg("v_in"),
+        nb::arg("rac0"), nb::arg("racdot"),
+        nb::arg("elapsed_s"),
+        "Apply an SSR orbit correction (RAC frame at the SSR epoch +\n"
+        "linear rate) to a broadcast ECEF position. Returns a fresh\n"
+        "(3,) float64 ndarray.");
+
+    m.def(
+        "apply_ssr_clock_correction",
+        &apply_ssr_clock_correction_py,
+        nb::arg("broadcast_clock_s"),
+        nb::arg("c0"), nb::arg("c1"), nb::arg("c2"),
+        nb::arg("elapsed_s"),
+        "Apply an SSR clock-polynomial correction to a broadcast clock\n"
+        "bias. Returns the precise clock bias in seconds.");
 }
