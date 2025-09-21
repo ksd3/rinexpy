@@ -21,6 +21,8 @@ Kernels currently shipped:
 | `decode_beidou_d1_sf1` | `rinexpy.beidou.decode_d1_subframe1` | ~3.2x per subframe |
 | `decode_beidou_d2_page1` | `rinexpy.beidou.decode_d2_page1` | ~3.2x per subframe |
 | `kalman_scalar_update_sparse` | `StaticPPPFilter._scalar_update` (all 3 variants) | ~5.4x on 1000 updates (n=24) |
+| `apply_ssr_orbit_correction` | `RealtimeOrbitClock.apply_orbit_correction` | ~10.5x on 3200 corrections |
+| `apply_ssr_clock_correction` | `RealtimeOrbitClock.apply_clock_correction` | similar |
 
 ## Separate package
 

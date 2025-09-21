@@ -2,34 +2,37 @@ rinexpy_native available: crc24q=True, read_bits=True, lambda_ils=True, decode_m
 
 == RTCM3 inner loops ==
   corpus: GMSD7 (256 KB)
-  crc24q(buffer)       py   78.55 ms    cpp    0.50 ms     157.6x
+  crc24q(buffer)       py   78.63 ms    cpp    0.50 ms     158.0x
   iter_messages (CRC + decode), 1143 msgs
-    pure-Python               218.81 ms   1.00x
-    + native crc24q           139.63 ms    1.57x
-    + native _bits             39.09 ms    5.60x
-    + native decode_msm        24.14 ms    9.07x
+    pure-Python               218.43 ms   1.00x
+    + native crc24q           139.31 ms    1.57x
+    + native _bits             38.76 ms    5.64x
+    + native decode_msm        24.05 ms    9.08x
 
 == LAMBDA ILS (well-conditioned: clean RTK geometry) ==
-  n=5  L1-only GPS        py     0.08 ms    cpp     0.00 ms      30.4x
-  n=10 multi-GNSS L1      py     0.20 ms    cpp     0.00 ms      64.2x
-  n=20 dual-freq          py     0.70 ms    cpp     0.01 ms     133.7x
-  n=30 multi-GNSS         py     1.56 ms    cpp     0.01 ms     186.6x
-  n=40 multi-GNSS         py     2.48 ms    cpp     0.01 ms     216.2x
+  n=5  L1-only GPS        py     0.08 ms    cpp     0.00 ms      28.6x
+  n=10 multi-GNSS L1      py     0.20 ms    cpp     0.00 ms      65.3x
+  n=20 dual-freq          py     0.70 ms    cpp     0.01 ms     132.7x
+  n=30 multi-GNSS         py     1.55 ms    cpp     0.01 ms     174.2x
+  n=40 multi-GNSS         py     2.47 ms    cpp     0.01 ms     211.3x
 
 == LAMBDA ILS (ill-conditioned: weak-geometry RTK) ==
-  n=8  noisy              py     0.17 ms    cpp     0.00 ms      50.7x
-  n=12 noisy              py     0.38 ms    cpp     0.01 ms      71.4x
-  n=15 noisy              py     0.70 ms    cpp     0.01 ms      93.9x
-  n=20 noisy              py     2.24 ms    cpp     0.02 ms     100.1x
-  lambda_resolve(n=15)    py     0.39 ms    cpp     0.00 ms      86.1x
+  n=8  noisy              py     0.17 ms    cpp     0.00 ms      55.1x
+  n=12 noisy              py     0.38 ms    cpp     0.01 ms      72.5x
+  n=15 noisy              py     0.69 ms    cpp     0.01 ms      93.3x
+  n=20 noisy              py     2.17 ms    cpp     0.02 ms      95.7x
+  lambda_resolve(n=15)    py     0.39 ms    cpp     0.00 ms      89.7x
 
 == SP3 Lagrange interpolation (order=10) ==
   corpus: igs20010.sp3
-  1000 queries x 32 SVs    py   28.67 ms    cpp    0.73 ms      39.2x
+  1000 queries x 32 SVs    py   28.78 ms    cpp    0.67 ms      42.7x
 
 == Nav-message subframe decoders ==
-  LNAV sf1            py    3.65 us    cpp    1.02 us      3.6x
-  BeiDou D1 sf1       py    4.37 us    cpp    1.36 us      3.2x
+  LNAV sf1            py    3.32 us    cpp    1.07 us      3.1x
+  BeiDou D1 sf1       py    3.74 us    cpp    1.22 us      3.1x
 
 == Kalman scalar update (static PPP) ==
-  1000 scalar updates (n=24)   py    9.87 ms    cpp    1.83 ms      5.4x
+  1000 scalar updates (n=24)   py    9.82 ms    cpp    1.73 ms      5.7x
+
+== SSR correction application ==
+  3200 orbit corrections  py   67.92 ms    cpp    6.45 ms     10.5x

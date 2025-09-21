@@ -349,6 +349,42 @@ def bench_kalman_update() -> None:
           f"cpp {t_cpp*1e3:7.2f} ms    {t_py/t_cpp:5.1f}x")
 
 
+def bench_ssr_apply() -> None:
+    """Time SSR orbit + clock correction application."""
+    from datetime import datetime, timezone
+    from rinexpy.realtime import (
+        RealtimeOrbitClock, _SSREntry,
+    )
+
+    print("\n== SSR correction application ==")
+    cache = RealtimeOrbitClock()
+    now = datetime.now(timezone.utc)
+    for prn in range(1, 33):
+        cache.ssr_orbit[prn] = _SSREntry(
+            received=now, iod=0,
+            radial_m=0.1, along_m=-0.2, cross_m=0.3,
+            dot_radial_m_per_s=1e-4, dot_along_m_per_s=2e-4,
+            dot_cross_m_per_s=-3e-4,
+        )
+
+    r = np.array([20e6, 5e6, 18e6])
+    v = np.array([1000.0, -1500.0, 2000.0])
+
+    def run():
+        for _ in range(100):
+            for prn in range(1, 33):
+                cache.apply_orbit_correction(prn, r, v, elapsed_s=1.0)
+
+    _native.have_apply_ssr = lambda: False
+    t_py = _median_of(run, n=3)
+    _native.have_apply_ssr = (
+        lambda: _native._apply_ssr_orbit_correction is not None
+    )
+    t_cpp = _median_of(run, n=5)
+    print(f"  3200 orbit corrections  py {t_py*1e3:7.2f} ms    "
+          f"cpp {t_cpp*1e3:7.2f} ms    {t_py/t_cpp:5.1f}x")
+
+
 def main() -> None:
     if not _native.have_crc24q():
         print("rinexpy_native is missing. From the repo root:")
@@ -365,6 +401,7 @@ def main() -> None:
     bench_interp_sp3()
     bench_nav_subframes()
     bench_kalman_update()
+    bench_ssr_apply()
 
 
 if __name__ == "__main__":
