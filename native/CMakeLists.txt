@@ -37,6 +37,7 @@ nanobind_add_module(
     src/crc24q.cpp
     src/lagrange_sp3.cpp
     src/kalman_update.cpp
+    src/keplerian_ecef.cpp
     src/lambda_ils.cpp
     src/msm_decode.cpp
     src/nav_subframes.cpp

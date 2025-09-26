@@ -9,6 +9,7 @@
 #include "crc24q.hpp"
 #include "decode_obs_batch.hpp"
 #include "kalman_update.hpp"
+#include "keplerian_ecef.hpp"
 #include "lagrange_sp3.hpp"
 #include "lambda_ils.hpp"
 #include "msm_decode.hpp"
@@ -272,6 +273,54 @@ void kalman_scalar_update_py(
         x.data(), P.data(), n,
         h_indices.data(), h_values.data(), hn,
         innovation, r);
+}
+
+// Batched Keplerian -> ECEF. Takes 17 parallel arrays of length n
+// and returns a fresh (n, 3) float64 ndarray.
+nb::ndarray<nb::numpy, double, nb::ndim<2>, nb::device::cpu>
+keplerian_to_ecef_batch_py(
+    nb::ndarray<const double, nb::ndim<1>, nb::c_contig, nb::device::cpu> M0,
+    nb::ndarray<const double, nb::ndim<1>, nb::c_contig, nb::device::cpu> dn,
+    nb::ndarray<const double, nb::ndim<1>, nb::c_contig, nb::device::cpu> e,
+    nb::ndarray<const double, nb::ndim<1>, nb::c_contig, nb::device::cpu> sqrtA,
+    nb::ndarray<const double, nb::ndim<1>, nb::c_contig, nb::device::cpu> omega,
+    nb::ndarray<const double, nb::ndim<1>, nb::c_contig, nb::device::cpu> Cuc,
+    nb::ndarray<const double, nb::ndim<1>, nb::c_contig, nb::device::cpu> Cus,
+    nb::ndarray<const double, nb::ndim<1>, nb::c_contig, nb::device::cpu> Cic,
+    nb::ndarray<const double, nb::ndim<1>, nb::c_contig, nb::device::cpu> Cis,
+    nb::ndarray<const double, nb::ndim<1>, nb::c_contig, nb::device::cpu> Crc,
+    nb::ndarray<const double, nb::ndim<1>, nb::c_contig, nb::device::cpu> Crs,
+    nb::ndarray<const double, nb::ndim<1>, nb::c_contig, nb::device::cpu> Io,
+    nb::ndarray<const double, nb::ndim<1>, nb::c_contig, nb::device::cpu> IDOT,
+    nb::ndarray<const double, nb::ndim<1>, nb::c_contig, nb::device::cpu> Omega0,
+    nb::ndarray<const double, nb::ndim<1>, nb::c_contig, nb::device::cpu> OmegaDot,
+    nb::ndarray<const double, nb::ndim<1>, nb::c_contig, nb::device::cpu> Toe,
+    nb::ndarray<const double, nb::ndim<1>, nb::c_contig, nb::device::cpu> tk) {
+    const std::size_t n = M0.size();
+    const std::size_t inputs[] = {
+        dn.size(), e.size(), sqrtA.size(), omega.size(), Cuc.size(),
+        Cus.size(), Cic.size(), Cis.size(), Crc.size(), Crs.size(),
+        Io.size(), IDOT.size(), Omega0.size(), OmegaDot.size(), Toe.size(),
+        tk.size(),
+    };
+    for (std::size_t s : inputs) {
+        if (s != n) {
+            throw std::invalid_argument(
+                "all 17 Keplerian arrays must have the same length");
+        }
+    }
+    double* out = new double[n * 3];
+    rinexpy_native::keplerian_to_ecef_batch(
+        M0.data(), dn.data(), e.data(), sqrtA.data(), omega.data(),
+        Cuc.data(), Cus.data(), Cic.data(), Cis.data(), Crc.data(), Crs.data(),
+        Io.data(), IDOT.data(), Omega0.data(), OmegaDot.data(), Toe.data(),
+        tk.data(), n, out);
+    std::size_t shape[2] = { n, 3 };
+    nb::capsule owner(out, [](void* p) noexcept {
+        delete[] static_cast<double*>(p);
+    });
+    return nb::ndarray<nb::numpy, double, nb::ndim<2>, nb::device::cpu>(
+        out, 2, shape, owner);
 }
 
 // SSR orbit correction in RAC frame -> ECEF. Returns a fresh (3,)
@@ -546,6 +595,17 @@ NB_MODULE(_ext, m) {
         "Apply an SSR orbit correction (RAC frame at the SSR epoch +\n"
         "linear rate) to a broadcast ECEF position. Returns a fresh\n"
         "(3,) float64 ndarray.");
+
+    m.def(
+        "keplerian_to_ecef_batch",
+        &keplerian_to_ecef_batch_py,
+        nb::arg("M0"), nb::arg("dn"), nb::arg("e"), nb::arg("sqrtA"),
+        nb::arg("omega"), nb::arg("Cuc"), nb::arg("Cus"),
+        nb::arg("Cic"), nb::arg("Cis"), nb::arg("Crc"), nb::arg("Crs"),
+        nb::arg("Io"), nb::arg("IDOT"), nb::arg("Omega0"),
+        nb::arg("OmegaDot"), nb::arg("Toe"), nb::arg("tk"),
+        "Batched Keplerian -> ECEF for GPS / Galileo ephemerides.\n"
+        "Returns a fresh (n, 3) float64 ndarray.");
 
     m.def(
         "apply_ssr_clock_correction",

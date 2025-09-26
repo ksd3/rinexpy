@@ -35,6 +35,7 @@ from ._ext import (
     decode_obs_batch,
     interpolate_sp3_lagrange,
     kalman_scalar_update_sparse,
+    keplerian_to_ecef_batch,
     lambda_ils,
     read_bits,
 )
@@ -53,6 +54,7 @@ __all__ = [
     "decode_obs_batch",
     "interpolate_sp3_lagrange",
     "kalman_scalar_update_sparse",
+    "keplerian_to_ecef_batch",
     "lambda_ils",
     "read_bits",
 ]
