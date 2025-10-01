@@ -27,6 +27,8 @@ from pathlib import Path
 
 import numpy as np
 
+from . import _native
+
 
 def load_gpt2w_grid(path: Path | str) -> dict:
     """Read a GPT2w ``.grd`` text file into an in-memory grid dict.
@@ -162,6 +164,43 @@ def gpt2w(
         else (lon - lon_axis[j0]) / (lon_axis[j1] - lon_axis[j0])
     )
     _ = res  # kept for callers that want to inspect
+
+    if _native.have_gpt2w_eval():
+        # Pack the 4 corner cells into a flat 176-float buffer
+        # (4 corners x 44 columns each). Pad columns 42..43 with the
+        # neighbour's data if the grid has only 42 columns to satisfy
+        # the kernel's 44-column expectation.
+        cell_cols = data.shape[2]
+        if cell_cols >= 44:
+            buf = np.ascontiguousarray(
+                np.stack([
+                    data[i0, j0, :44], data[i0, j1, :44],
+                    data[i1, j0, :44], data[i1, j1, :44],
+                ]).ravel(),
+                dtype=float,
+            )
+        else:
+            # Pad with zeros so the layout matches; columns 42..43
+            # (water-vapour-decrease and friends) are read but only the
+            # ones the kernel uses are propagated to the output.
+            padded = np.zeros((4, 44), dtype=float)
+            padded[0, :cell_cols] = data[i0, j0]
+            padded[1, :cell_cols] = data[i0, j1]
+            padded[2, :cell_cols] = data[i1, j0]
+            padded[3, :cell_cols] = data[i1, j1]
+            buf = np.ascontiguousarray(padded.ravel(), dtype=float)
+        result = _native.gpt2w_eval_cell(
+            buf, w_lat, w_lon, doy, altitude_m,
+        )
+        return {
+            "pressure_hpa": float(result[0]),
+            "temperature_k": float(result[1]),
+            "e_hpa": float(result[2]),
+            "a_h": float(result[3]),
+            "a_w": float(result[4]),
+            "T_lapse": float(result[5]),
+            "undulation_m": float(result[6]),
+        }
 
     def at(corner_i: int, corner_j: int) -> dict:
         cell = data[corner_i, corner_j]

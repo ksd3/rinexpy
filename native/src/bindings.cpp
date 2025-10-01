@@ -8,6 +8,7 @@
 #include "bit_cursor.hpp"
 #include "crc24q.hpp"
 #include "decode_obs_batch.hpp"
+#include "gpt2w_eval.hpp"
 #include "kalman_update.hpp"
 #include "keplerian_ecef.hpp"
 #include "lagrange_sp3.hpp"
@@ -273,6 +274,28 @@ void kalman_scalar_update_py(
         x.data(), P.data(), n,
         h_indices.data(), h_values.data(), hn,
         innovation, r);
+}
+
+// GPT2w cell evaluator. Returns a 7-element float64 ndarray
+// (pressure_hpa, temperature_k, e_hpa, a_h, a_w, T_lapse,
+// undulation_m).
+nb::ndarray<nb::numpy, double, nb::ndim<1>, nb::device::cpu>
+gpt2w_eval_cell_py(
+    nb::ndarray<const double, nb::ndim<1>, nb::c_contig, nb::device::cpu> cells,
+    double w_lat, double w_lon, double doy, double altitude_m) {
+    if (cells.size() != 4 * 44) {
+        throw std::invalid_argument(
+            "cells must be the flat 4 corners x 44 columns (176 floats)");
+    }
+    double* out = new double[7];
+    rinexpy_native::gpt2w_eval_cell(
+        cells.data(), w_lat, w_lon, doy, altitude_m, out);
+    std::size_t shape[1] = { 7 };
+    nb::capsule owner(out, [](void* p) noexcept {
+        delete[] static_cast<double*>(p);
+    });
+    return nb::ndarray<nb::numpy, double, nb::ndim<1>, nb::device::cpu>(
+        out, 1, shape, owner);
 }
 
 // Batched Keplerian -> ECEF. Takes 17 parallel arrays of length n
@@ -595,6 +618,16 @@ NB_MODULE(_ext, m) {
         "Apply an SSR orbit correction (RAC frame at the SSR epoch +\n"
         "linear rate) to a broadcast ECEF position. Returns a fresh\n"
         "(3,) float64 ndarray.");
+
+    m.def(
+        "gpt2w_eval_cell",
+        &gpt2w_eval_cell_py,
+        nb::arg("cells"),
+        nb::arg("w_lat"), nb::arg("w_lon"),
+        nb::arg("doy"), nb::arg("altitude_m"),
+        "Evaluate GPT2w at one (lat, lon, doy) point. `cells` is the\n"
+        "flat 4-corner x 44-column buffer; returns 7-element output\n"
+        "(pressure, temperature, e, a_h, a_w, T_lapse, undulation).");
 
     m.def(
         "keplerian_to_ecef_batch",

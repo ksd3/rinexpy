@@ -84,6 +84,13 @@ try:
 except ImportError:  # pragma: no cover
     _kalman_scalar_update_sparse = None  # type: ignore[assignment]
 
+# GPT2w cell evaluator.
+try:
+    from rinexpy_native import gpt2w_eval_cell as _gpt2w_eval_cell  # type: ignore[attr-defined]
+except ImportError:  # pragma: no cover
+    _gpt2w_eval_cell = None  # type: ignore[assignment]
+
+
 # Batched Keplerian -> ECEF kernel.
 try:
     from rinexpy_native import (  # type: ignore[attr-defined]
@@ -272,6 +279,23 @@ def kalman_scalar_update_sparse(x, P, h_indices, h_values,
     _kalman_scalar_update_sparse(
         x, P, h_indices, h_values, float(innovation), float(r),
     )
+
+
+def have_gpt2w_eval() -> bool:
+    """Return ``True`` if the C++ GPT2w kernel is available."""
+    return _gpt2w_eval_cell is not None
+
+
+def gpt2w_eval_cell(cells, w_lat: float, w_lon: float, doy: float,
+                    altitude_m: float):
+    """GPT2w cell evaluator via the C++ kernel."""
+    if _gpt2w_eval_cell is None:
+        raise ImportError(
+            "rinexpy_native.gpt2w_eval_cell is not installed; "
+            "rebuild rinexpy-native >= 0.2.0 via `uv sync --extra native`."
+        )
+    return _gpt2w_eval_cell(cells, float(w_lat), float(w_lon),
+                             float(doy), float(altitude_m))
 
 
 def have_keplerian_to_ecef() -> bool:
