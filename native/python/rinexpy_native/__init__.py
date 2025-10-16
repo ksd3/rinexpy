@@ -39,6 +39,7 @@ from ._ext import (
     keplerian_to_ecef_batch,
     lambda_ils,
     read_bits,
+    spp_solve as spp_solve_native,
 )
 
 __version__ = "0.1.0"
@@ -59,4 +60,5 @@ __all__ = [
     "keplerian_to_ecef_batch",
     "lambda_ils",
     "read_bits",
+    "spp_solve_native",
 ]

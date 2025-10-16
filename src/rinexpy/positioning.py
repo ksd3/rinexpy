@@ -20,6 +20,7 @@ from datetime import datetime
 
 import numpy as np
 
+from . import _native
 from .geodesy import ecef_to_lla, klobuchar
 from .gpstime import datetime_to_gps
 
@@ -122,10 +123,31 @@ def spp_solve(
     RuntimeError
         If the iteration does not converge within ``max_iter``.
     """
-    sv = np.asarray(sv_ecef, dtype=float)
-    pr = np.asarray(pseudoranges, dtype=float)
+    sv = np.ascontiguousarray(sv_ecef, dtype=float)
+    pr = np.ascontiguousarray(pseudoranges, dtype=float)
     if sv.shape[0] < 4:
         raise ValueError("SPP needs >= 4 pseudoranges")
+
+    if _native.have_spp_solve():
+        init = np.ascontiguousarray(initial_guess, dtype=float)
+        x, y, z, dt_s, n_iter, conv, residuals = _native.spp_solve(
+            sv, pr, init, tol, max_iter,
+        )
+        if not conv:
+            raise RuntimeError(
+                f"SPP did not converge in {max_iter} iterations (native path)"
+            )
+        try:
+            lat, lon, alt = ecef_to_lla(x, y, z)
+        except (ValueError, ZeroDivisionError):
+            lat = lon = alt = float("nan")
+        return {
+            "position": (float(x), float(y), float(z)),
+            "clock_bias": float(dt_s),
+            "n_iter": int(n_iter),
+            "residuals": np.asarray(residuals),
+            "lla": (lat, lon, alt),
+        }
 
     state = np.array([initial_guess[0], initial_guess[1], initial_guess[2], 0.0])
     for it in range(max_iter):

@@ -84,6 +84,14 @@ try:
 except ImportError:  # pragma: no cover
     _kalman_scalar_update_sparse = None  # type: ignore[assignment]
 
+# Iterative SPP LSQ solver. (The native package exposes the kernel as
+# `spp_solve_native` to avoid colliding with rinexpy.positioning.spp_solve.)
+try:
+    from rinexpy_native import spp_solve_native as _spp_solve_native  # type: ignore[attr-defined]
+except ImportError:  # pragma: no cover
+    _spp_solve_native = None  # type: ignore[assignment]
+
+
 # GPT2w cell evaluator.
 try:
     from rinexpy_native import gpt2w_eval_cell as _gpt2w_eval_cell  # type: ignore[attr-defined]
@@ -279,6 +287,22 @@ def kalman_scalar_update_sparse(x, P, h_indices, h_values,
     _kalman_scalar_update_sparse(
         x, P, h_indices, h_values, float(innovation), float(r),
     )
+
+
+def have_spp_solve() -> bool:
+    """Return ``True`` if the C++ SPP LSQ solver is available."""
+    return _spp_solve_native is not None
+
+
+def spp_solve(sv_ecef, pseudorange, init_xyz, tol: float, max_iter: int):
+    """Iterative SPP via the C++ kernel."""
+    if _spp_solve_native is None:
+        raise ImportError(
+            "rinexpy_native.spp_solve is not installed; "
+            "rebuild rinexpy-native >= 0.2.0 via `uv sync --extra native`."
+        )
+    return _spp_solve_native(sv_ecef, pseudorange, init_xyz,
+                              float(tol), int(max_iter))
 
 
 def have_gpt2w_eval() -> bool:

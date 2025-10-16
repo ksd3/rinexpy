@@ -15,6 +15,7 @@
 #include "lambda_ils.hpp"
 #include "msm_decode.hpp"
 #include "nav_subframes.hpp"
+#include "spp_solve.hpp"
 #include "ssr_apply.hpp"
 
 #include <nanobind/nanobind.h>
@@ -346,6 +347,40 @@ keplerian_to_ecef_batch_py(
         out, 2, shape, owner);
 }
 
+// Iterative SPP LSQ solver. Returns (position3, clock_bias, n_iter,
+// converged, residuals_ndarray).
+nb::tuple spp_solve_py(
+    nb::ndarray<const double, nb::ndim<2>, nb::c_contig, nb::device::cpu> sv_ecef,
+    nb::ndarray<const double, nb::ndim<1>, nb::c_contig, nb::device::cpu> pseudorange,
+    nb::ndarray<const double, nb::ndim<1>, nb::c_contig, nb::device::cpu> init_xyz,
+    double tol, int max_iter) {
+    if (sv_ecef.shape(1) != 3) {
+        throw std::invalid_argument("sv_ecef must be (n_sv, 3)");
+    }
+    const std::size_t n_sv = sv_ecef.shape(0);
+    if (pseudorange.size() != n_sv) {
+        throw std::invalid_argument(
+            "pseudorange length must equal sv_ecef row count");
+    }
+    if (init_xyz.size() != 3) {
+        throw std::invalid_argument("init_xyz must be length 3");
+    }
+    double* residuals = new double[n_sv ? n_sv : 1];
+    auto res = rinexpy_native::spp_solve_iterative(
+        sv_ecef.data(), pseudorange.data(), n_sv,
+        init_xyz.data(), tol, max_iter, residuals);
+
+    std::size_t shape[1] = { n_sv };
+    nb::capsule owner(residuals, [](void* p) noexcept {
+        delete[] static_cast<double*>(p);
+    });
+    auto residuals_arr = nb::ndarray<nb::numpy, double, nb::ndim<1>,
+                                     nb::device::cpu>(
+        residuals, 1, shape, owner);
+    return nb::make_tuple(res.x, res.y, res.z, res.clock_bias_s,
+                          res.n_iter, res.converged, residuals_arr);
+}
+
 // SSR orbit correction in RAC frame -> ECEF. Returns a fresh (3,)
 // ndarray so the caller doesn't have to pre-allocate.
 nb::ndarray<nb::numpy, double, nb::ndim<1>, nb::device::cpu>
@@ -608,6 +643,15 @@ NB_MODULE(_ext, m) {
         "in place. h_indices/h_values describe the nonzero entries of\n"
         "the measurement row; the caller pre-computes the innovation.\n"
         "Runs in O(n^2) instead of the dense O(n^3) numpy version.");
+
+    m.def(
+        "spp_solve",
+        &spp_solve_py,
+        nb::arg("sv_ecef"), nb::arg("pseudorange"),
+        nb::arg("init_xyz"), nb::arg("tol"), nb::arg("max_iter"),
+        "Iterative single-point-positioning least-squares solver.\n"
+        "Returns (x, y, z, clock_bias_s, n_iter, converged_flag,\n"
+        "residuals_ndarray).");
 
     m.def(
         "apply_ssr_orbit_correction",
