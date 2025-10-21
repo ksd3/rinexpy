@@ -25,6 +25,7 @@ Kernels currently shipped:
 | `apply_ssr_clock_correction` | `RealtimeOrbitClock.apply_clock_correction` | similar |
 | `gpt2w_eval_cell` | `rinexpy.gpt2w.gpt2w` | ~3.9x per query |
 | `keplerian_to_ecef_batch` | (kernel only; numpy SIMD wins at typical n) | — |
+| `spp_solve_native` | `rinexpy.positioning.spp_solve` | ~15x per fix |
 
 ## Separate package
 
