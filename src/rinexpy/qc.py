@@ -25,6 +25,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from . import _native
+
 _C = 299_792_458.0
 _F_L1 = 1575.42e6
 _F_L2 = 1227.60e6
@@ -412,14 +414,23 @@ def hatch_filter(
     ValueError
         If ``pr_m`` and ``phase_m`` differ in shape, or ``window < 1``.
     """
-    pr = np.asarray(pr_m, dtype=float)
-    phi = np.asarray(phase_m, dtype=float)
+    pr = np.ascontiguousarray(pr_m, dtype=float)
+    phi = np.ascontiguousarray(phase_m, dtype=float)
     if pr.shape != phi.shape:
         raise ValueError(
             f"pr_m and phase_m must match shape; got {pr.shape} vs {phi.shape}"
         )
     if window < 1:
         raise ValueError(f"window must be >= 1, got {window}")
+
+    if _native.have_hatch_filter():
+        if slips is None:
+            slips_u8 = np.empty(0, dtype=np.uint8)
+        else:
+            slips_u8 = np.ascontiguousarray(
+                np.asarray(slips).astype(bool), dtype=np.uint8,
+            )
+        return np.asarray(_native.hatch_filter(pr, phi, slips_u8, window))
 
     n = len(pr)
     out = np.full(n, np.nan)

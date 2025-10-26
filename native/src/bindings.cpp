@@ -9,6 +9,7 @@
 #include "crc24q.hpp"
 #include "decode_obs_batch.hpp"
 #include "gpt2w_eval.hpp"
+#include "hatch_filter.hpp"
 #include "kalman_update.hpp"
 #include "keplerian_ecef.hpp"
 #include "lagrange_sp3.hpp"
@@ -347,6 +348,39 @@ keplerian_to_ecef_batch_py(
         out, 2, shape, owner);
 }
 
+// Hatch (carrier-smoothed code) filter. Pass an empty `slips` array
+// to disable slip-reset behaviour. Returns a fresh (n,) float64 ndarray.
+nb::ndarray<nb::numpy, double, nb::ndim<1>, nb::device::cpu>
+hatch_filter_py(
+    nb::ndarray<const double, nb::ndim<1>, nb::c_contig, nb::device::cpu> pr,
+    nb::ndarray<const double, nb::ndim<1>, nb::c_contig, nb::device::cpu> phi,
+    nb::ndarray<const std::uint8_t, nb::ndim<1>, nb::c_contig, nb::device::cpu> slips,
+    int window) {
+    const std::size_t n = pr.size();
+    if (phi.size() != n) {
+        throw std::invalid_argument("pr and phi must match shape");
+    }
+    if (window < 1) {
+        throw std::invalid_argument("window must be >= 1");
+    }
+    const std::uint8_t* slips_ptr = nullptr;
+    if (slips.size() > 0) {
+        if (slips.size() != n) {
+            throw std::invalid_argument("slips length must equal pr length");
+        }
+        slips_ptr = slips.data();
+    }
+    double* out = new double[n ? n : 1];
+    rinexpy_native::hatch_filter_kernel(
+        pr.data(), phi.data(), slips_ptr, n, window, out);
+    std::size_t shape[1] = { n };
+    nb::capsule owner(out, [](void* p) noexcept {
+        delete[] static_cast<double*>(p);
+    });
+    return nb::ndarray<nb::numpy, double, nb::ndim<1>, nb::device::cpu>(
+        out, 1, shape, owner);
+}
+
 // Iterative SPP LSQ solver. Returns (position3, clock_bias, n_iter,
 // converged, residuals_ndarray).
 nb::tuple spp_solve_py(
@@ -643,6 +677,14 @@ NB_MODULE(_ext, m) {
         "in place. h_indices/h_values describe the nonzero entries of\n"
         "the measurement row; the caller pre-computes the innovation.\n"
         "Runs in O(n^2) instead of the dense O(n^3) numpy version.");
+
+    m.def(
+        "hatch_filter",
+        &hatch_filter_py,
+        nb::arg("pr"), nb::arg("phi"),
+        nb::arg("slips"), nb::arg("window"),
+        "Carrier-smoothed code (Hatch filter) over one per-SV time\n"
+        "series. `slips` can be None or a uint8 (n,) array.");
 
     m.def(
         "spp_solve",
