@@ -26,6 +26,7 @@ Kernels currently shipped:
 | `gpt2w_eval_cell` | `rinexpy.gpt2w.gpt2w` | ~3.9x per query |
 | `keplerian_to_ecef_batch` | (kernel only; numpy SIMD wins at typical n) | — |
 | `spp_solve_native` | `rinexpy.positioning.spp_solve` | ~15x per fix |
+| `hatch_filter_native` | `rinexpy.qc.hatch_filter` | ~266x on 10k-epoch series |
 
 ## Separate package
 
