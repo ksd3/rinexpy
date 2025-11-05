@@ -7,6 +7,7 @@
 
 #include "bit_cursor.hpp"
 #include "crc24q.hpp"
+#include "crinex_diff.hpp"
 #include "decode_obs_batch.hpp"
 #include "gpt2w_eval.hpp"
 #include "hatch_filter.hpp"
@@ -277,6 +278,26 @@ void kalman_scalar_update_py(
         h_indices.data(), h_values.data(), hn,
         innovation, r);
 }
+
+// CRINEX channel state (k-th order integer-differencing
+// reconstructor). Bound as a tiny stateful Python class so the
+// Python-side format parser can keep one instance per (SV, obs-type)
+// channel and push deltas through it as they arrive.
+struct CrinexChannelPy {
+    rinexpy_native::CrinexChannelState state;
+
+    void reset(int order) {
+        if (order < 0 || order > rinexpy_native::CrinexChannelState::MAX_ORDER) {
+            throw std::invalid_argument(
+                "order must be in [0, 7]");
+        }
+        rinexpy_native::crinex_channel_reset(&state, order);
+    }
+
+    std::int64_t step(std::int64_t delta) {
+        return rinexpy_native::crinex_channel_step(&state, delta);
+    }
+};
 
 // GPT2w cell evaluator. Returns a 7-element float64 ndarray
 // (pressure_hpa, temperature_k, e_hpa, a_h, a_w, T_lapse,
@@ -685,6 +706,18 @@ NB_MODULE(_ext, m) {
         nb::arg("slips"), nb::arg("window"),
         "Carrier-smoothed code (Hatch filter) over one per-SV time\n"
         "series. `slips` can be None or a uint8 (n,) array.");
+
+    nb::class_<CrinexChannelPy>(m, "CrinexChannel",
+        "Per-channel CRINEX k-th order integer-differencing\n"
+        "reconstructor (Hatanaka 2008 §3). Pair one instance per\n"
+        "(SV, observation-type) channel with the Python-side format\n"
+        "parser.")
+        .def(nb::init<>())
+        .def("reset", &CrinexChannelPy::reset, nb::arg("order"),
+             "Reset the accumulator buffer to a fresh k-th order chain.")
+        .def("step", &CrinexChannelPy::step, nb::arg("delta"),
+             "Push one transmitted delta through the chain and return\n"
+             "the reconstructed absolute integer value at this epoch.");
 
     m.def(
         "spp_solve",
