@@ -27,6 +27,7 @@ Kernels currently shipped:
 | `keplerian_to_ecef_batch` | (kernel only; numpy SIMD wins at typical n) | — |
 | `spp_solve_native` | `rinexpy.positioning.spp_solve` | ~15x per fix |
 | `hatch_filter_native` | `rinexpy.qc.hatch_filter` | ~266x on 10k-epoch series |
+| `CrinexChannel` | (Hatanaka k-th order integer-differencing primitive; kernel only — see commit for scope) | — |
 
 ## Separate package
 
