@@ -106,15 +106,6 @@ except ImportError:  # pragma: no cover
     _gpt2w_eval_cell = None  # type: ignore[assignment]
 
 
-# Batched Keplerian -> ECEF kernel.
-try:
-    from rinexpy_native import (  # type: ignore[attr-defined]
-        keplerian_to_ecef_batch as _keplerian_to_ecef_batch,
-    )
-except ImportError:  # pragma: no cover
-    _keplerian_to_ecef_batch = None  # type: ignore[assignment]
-
-
 # SSR orbit + clock correction application kernels.
 try:
     from rinexpy_native import (  # type: ignore[attr-defined]
@@ -342,28 +333,6 @@ def gpt2w_eval_cell(cells, w_lat: float, w_lon: float, doy: float,
         )
     return _gpt2w_eval_cell(cells, float(w_lat), float(w_lon),
                              float(doy), float(altitude_m))
-
-
-def have_keplerian_to_ecef() -> bool:
-    """Return ``True`` if the C++ Keplerian->ECEF kernel is available."""
-    return _keplerian_to_ecef_batch is not None
-
-
-def keplerian_to_ecef_batch(M0, dn, e, sqrtA, omega,
-                            Cuc, Cus, Cic, Cis, Crc, Crs,
-                            Io, IDOT, Omega0, OmegaDot, Toe, tk):
-    """Batched Keplerian -> ECEF via the C++ kernel.
-
-    Returns an ``(n, 3)`` float64 ndarray.
-    """
-    if _keplerian_to_ecef_batch is None:
-        raise ImportError(
-            "rinexpy_native.keplerian_to_ecef_batch is not installed; "
-            "rebuild rinexpy-native >= 0.2.0 via `uv sync --extra native`."
-        )
-    return _keplerian_to_ecef_batch(M0, dn, e, sqrtA, omega,
-                                    Cuc, Cus, Cic, Cis, Crc, Crs,
-                                    Io, IDOT, Omega0, OmegaDot, Toe, tk)
 
 
 def have_apply_ssr() -> bool:

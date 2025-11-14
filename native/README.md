@@ -24,7 +24,6 @@ Kernels currently shipped:
 | `apply_ssr_orbit_correction` | `RealtimeOrbitClock.apply_orbit_correction` | ~10.5x on 3200 corrections |
 | `apply_ssr_clock_correction` | `RealtimeOrbitClock.apply_clock_correction` | similar |
 | `gpt2w_eval_cell` | `rinexpy.gpt2w.gpt2w` | ~3.9x per query |
-| `keplerian_to_ecef_batch` | (kernel only; numpy SIMD wins at typical n) | — |
 | `spp_solve_native` | `rinexpy.positioning.spp_solve` | ~15x per fix |
 | `hatch_filter_native` | `rinexpy.qc.hatch_filter` | ~266x on 10k-epoch series |
 | `CrinexChannel` | (Hatanaka k-th order integer-differencing primitive; kernel only — see commit for scope) | — |

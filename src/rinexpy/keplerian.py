@@ -63,12 +63,11 @@ def keplerian2ecef(
 
     weeks = np.atleast_1d(weeks).astype(float)
     toe = np.atleast_1d(sv["Toe"].values).astype(float)
-    e = np.atleast_1d(sv["Eccentricity"].values).astype(float)
-    sqrtA = np.atleast_1d(sv["sqrtA"].values).astype(float)
-    A = sqrtA ** 2
+    e = sv["Eccentricity"].values
+    A = sv["sqrtA"].values ** 2
 
     n0 = np.sqrt(_GM / A**3)
-    n = n0 + np.atleast_1d(sv["DeltaN"].values).astype(float)
+    n = n0 + sv["DeltaN"].values
 
     # Vectorized t_k computation. Build a NumPy datetime64 representation of
     # each (week, toe) reference epoch, subtract from sv.time once.
@@ -79,14 +78,6 @@ def keplerian2ecef(
     tk = (sv["time"].values - ref_ns) / np.timedelta64(1, "s")
     tk = tk.astype(float)
 
-    # The C++ kernel `rinexpy_native.keplerian_to_ecef_batch` is
-    # available but NOT dispatched here. At typical per-SV input sizes
-    # (n_epochs ~ 24) numpy's SIMD on np.sin / np.cos / np.sqrt beats
-    # the scalar C++ Newton loop, AND the Python-side xarray indexing
-    # + array marshalling overhead is comparable to the math cost.
-    # Empirically the dispatch lost 2x on real nav data. The kernel
-    # remains shipped for callers that batch many SVs into a single
-    # call (where numpy's vector startup amortises poorly).
     Mk = sv["M0"].values + n * tk
     # Solve Kepler's equation M = E - e*sin(E) for E by Newton-Raphson.
     # Starting from E_0 = M and iterating
