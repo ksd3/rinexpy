@@ -45,6 +45,7 @@ nanobind_add_module(
     src/nav_subframes.cpp
     src/spp_solve.cpp
     src/ssr_apply.cpp
+    src/text_diff.cpp
     src/bindings.cpp
 )
 

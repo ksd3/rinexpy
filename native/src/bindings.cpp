@@ -18,6 +18,9 @@
 #include "nav_subframes.hpp"
 #include "spp_solve.hpp"
 #include "ssr_apply.hpp"
+#include "text_diff.hpp"
+
+#include <nanobind/stl/string.h>
 
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
@@ -657,6 +660,15 @@ NB_MODULE(_ext, m) {
         nb::arg("slips"), nb::arg("window"),
         "Carrier-smoothed code (Hatch filter) over one per-SV time\n"
         "series. `slips` can be None or a uint8 (n,) array.");
+
+    nb::class_<rinexpy_native::TextDiffState>(m, "TextDiffState",
+        "CRINEX TextDiff state: position-wise character-delta encoder.\n"
+        "Use reset() before the first line of each text field; subsequent\n"
+        "step(input) returns the reconstructed absolute text.")
+        .def(nb::init<>())
+        .def("reset", &rinexpy_native::TextDiffState::reset)
+        .def("step", &rinexpy_native::TextDiffState::step, nb::arg("delta"),
+             "Apply one TextDiff input line; return reconstructed line.");
 
     nb::class_<CrinexChannelPy>(m, "CrinexChannel",
         "Per-channel CRINEX k-th order integer-differencing\n"
