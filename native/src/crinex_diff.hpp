@@ -23,15 +23,20 @@
 
 namespace rinexpy_native {
 
-// State for one numeric channel. Holds the running k accumulators.
+// State for one numeric channel.
+//
+// CRINEX uses progressively-higher-order Pascal forward differences:
+// epoch 1 transmits the absolute value; epoch n in [2, k+1] transmits
+// the (n-1)-th forward difference; epoch n > k+1 transmits the k-th
+// forward difference. The decoder mirrors this by tracking the last
+// k reconstructed values and applying the matching Pascal-coefficient
+// inverse formula at each step.
 struct CrinexChannelState {
-    // accumulator[i] is the i-th order partial sum. Order k is set by
-    // the caller and bounded to 7 (CRINEX never exceeds order 5 in
-    // practice; we keep some headroom).
     static constexpr int MAX_ORDER = 7;
-    std::int64_t acc[MAX_ORDER + 1] = { 0, 0, 0, 0, 0, 0, 0, 0 };
-    int order = 0;          // active differencing order
-    int filled = 0;         // how many epochs have been seen
+    // prev[0] = v_{n-1}, prev[1] = v_{n-2}, ..., prev[k-1] = v_{n-k}.
+    std::int64_t prev[MAX_ORDER] = { 0, 0, 0, 0, 0, 0, 0 };
+    int order = 0;          // active differencing order (k)
+    int filled = 0;         // how many epochs have been seen (0..k+1)
 };
 
 // Reset the channel state. Called when the encoder sends an

@@ -31,6 +31,17 @@ except ImportError:  # pragma: no cover
     _HAVE_NATIVE = False
     _decode_obs_batch = None  # type: ignore[assignment]
 
+# Re-export the CRINEX kernels (small stateful classes) so the in-tree
+# crinex.py decoder can use them via the canonical `_native` module.
+try:
+    from rinexpy_native import (  # type: ignore[attr-defined]
+        CrinexChannel,
+        TextDiffState,
+    )
+except ImportError:  # pragma: no cover
+    CrinexChannel = None  # type: ignore[assignment]
+    TextDiffState = None  # type: ignore[assignment]
+
 # crc24q was added in rinexpy-native >= 0.2.0; older wheels that only
 # ship decode_obs_batch are still supported.
 try:
