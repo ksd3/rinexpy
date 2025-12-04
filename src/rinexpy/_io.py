@@ -88,19 +88,33 @@ def _is_crinex_stream(stream: IO[str]) -> bool:
 
 
 def _decode_crinex(stream: IO[str]) -> io.StringIO:
-    """Run a CRINEX text stream through ``hatanaka.crx2rnx`` and return RINEX.
+    """Decode a CRINEX text stream into a RINEX text stream.
 
-    Raises
-    ------
-    ImportError
-        If the optional ``hatanaka`` extra is not installed.
+    Prefers the in-tree decoder (:mod:`rinexpy.crinex`, backed by the
+    optional ``rinexpy_native`` C++ kernels) for CRINEX 3 input.
+    Falls back to the upstream ``hatanaka`` Python package for older
+    streams or when the in-tree decoder isn't importable. Raises only
+    if neither path is available.
     """
+    raw = stream.read()
+    # In-tree decoder first when the C++ kernels are available.
+    try:
+        from . import _native
+        if _native.TextDiffState is not None and _native.CrinexChannel is not None:
+            from .crinex import crx2rnx as _intree_crx2rnx
+            return io.StringIO(_intree_crx2rnx(raw))
+    except (ImportError, ValueError, NotImplementedError):
+        # NotImplementedError comes from the in-tree decoder for
+        # CRINEX 1 / RINEX 2 streams; fall through to hatanaka.
+        pass
     if _crx2rnx is None:
         raise ImportError(
-            "hatanaka extra is required for CRINEX (.crx) input: "
-            "`uv add 'rinexpy[hatanaka]'` or `pip install hatanaka`."
+            "CRINEX (.crx) input needs either rinexpy-native (`uv sync "
+            "--extra native`) for CRINEX 3, or the hatanaka extra "
+            "(`uv add 'rinexpy[hatanaka]'` or `pip install hatanaka`) "
+            "for older streams."
         )
-    return io.StringIO(_crx2rnx(stream.read()))
+    return io.StringIO(_crx2rnx(raw))
 
 
 @contextmanager
