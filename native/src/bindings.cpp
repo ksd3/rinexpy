@@ -8,6 +8,7 @@
 #include "bit_cursor.hpp"
 #include "crc24q.hpp"
 #include "crinex_diff.hpp"
+#include "crinex_sv_decoder.hpp"
 #include "decode_obs_batch.hpp"
 #include "gpt2w_eval.hpp"
 #include "hatch_filter.hpp"
@@ -660,6 +661,16 @@ NB_MODULE(_ext, m) {
         nb::arg("slips"), nb::arg("window"),
         "Carrier-smoothed code (Hatch filter) over one per-SV time\n"
         "series. `slips` can be None or a uint8 (n,) array.");
+
+    nb::class_<rinexpy_native::CrinexSVDecoder>(m, "CrinexSVDecoder",
+        "Fused per-SV CRINEX data-line decoder. Construct with a 3-char\n"
+        "PRN and n_obs (the number of obs types for the SV's\n"
+        "constellation). Call .decode_line(crx_line) per epoch to get\n"
+        "the reconstructed RINEX 3 OBS line.")
+        .def(nb::init<std::string, std::size_t>(),
+             nb::arg("sv_label"), nb::arg("n_obs"))
+        .def("decode_line", &rinexpy_native::CrinexSVDecoder::decode_line,
+             nb::arg("crx_line"));
 
     nb::class_<rinexpy_native::TextDiffState>(m, "TextDiffState",
         "CRINEX TextDiff state: position-wise character-delta encoder.\n"

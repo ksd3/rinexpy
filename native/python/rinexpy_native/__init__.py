@@ -26,6 +26,7 @@ from __future__ import annotations
 
 from ._ext import (
     CrinexChannel,
+    CrinexSVDecoder,
     TextDiffState,
     apply_ssr_clock_correction,
     apply_ssr_orbit_correction,
@@ -49,6 +50,7 @@ __version__ = "0.1.0"
 __all__ = [
     "__version__",
     "CrinexChannel",
+    "CrinexSVDecoder",
     "TextDiffState",
     "apply_ssr_clock_correction",
     "apply_ssr_orbit_correction",

@@ -36,10 +36,12 @@ except ImportError:  # pragma: no cover
 try:
     from rinexpy_native import (  # type: ignore[attr-defined]
         CrinexChannel,
+        CrinexSVDecoder,
         TextDiffState,
     )
 except ImportError:  # pragma: no cover
     CrinexChannel = None  # type: ignore[assignment]
+    CrinexSVDecoder = None  # type: ignore[assignment]
     TextDiffState = None  # type: ignore[assignment]
 
 # crc24q was added in rinexpy-native >= 0.2.0; older wheels that only

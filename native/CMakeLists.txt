@@ -36,6 +36,7 @@ nanobind_add_module(
     src/decode_obs_batch.cpp
     src/crc24q.cpp
     src/crinex_diff.cpp
+    src/crinex_sv_decoder.cpp
     src/gpt2w_eval.cpp
     src/hatch_filter.cpp
     src/lagrange_sp3.cpp

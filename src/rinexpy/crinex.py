@@ -22,16 +22,9 @@ back to the ``hatanaka`` package when present.
 
 from __future__ import annotations
 
-import re
 from typing import Any
 
 from . import _native
-
-
-_INIT_TOKEN_RE = re.compile(r"^(\d+)&(-?\d+)$")
-# Default differencing order if a channel does not carry an explicit
-# "k&" marker on its first epoch (per the Hatanaka spec, k=3).
-_DEFAULT_ORDER = 3
 
 
 def _parse_obs_header(rinex_header_lines: list[str]) -> dict[str, list[str]]:
@@ -64,58 +57,6 @@ def _parse_obs_header(rinex_header_lines: list[str]) -> dict[str, list[str]]:
                     systems[current_sys].append(c)
                     remaining -= 1
     return systems
-
-
-def _split_numeric_tokens(line: str, n_obs: int) -> tuple[list[str], str]:
-    """Split a CRINEX data line into ``n_obs`` numeric tokens and a
-    trailing LLI/SSI string.
-
-    Each numeric obs is space-terminated; an empty token between two
-    adjacent spaces means "this observation is missing at this epoch".
-    The remainder of the line (after the n_obs-th separator) is the
-    LLI/SSI delta string, possibly trimmed of trailing spaces.
-    """
-    tokens: list[str] = []
-    pos = 0
-    n = len(line)
-    for _ in range(n_obs):
-        # Find next space starting from pos.
-        sp = line.find(" ", pos)
-        if sp < 0:
-            # No more spaces. This token consumes the rest, and the
-            # remainder is empty.
-            tokens.append(line[pos:])
-            pos = n
-            break
-        tokens.append(line[pos:sp])
-        pos = sp + 1
-    # Pad with empty tokens if we ran out of input.
-    while len(tokens) < n_obs:
-        tokens.append("")
-    flags = line[pos:] if pos <= n else ""
-    return tokens, flags
-
-
-def _format_obs_value(int_value: int) -> str:
-    """Format a NumDiff-reconstructed integer (= value_m * 1000) as
-    the standard RINEX 3 F14.3 14-character field.
-
-    Matches the hatanaka reference encoder's leading-zero convention:
-    for values with ``|x| < 1`` the leading "0" before the decimal
-    point is omitted (so 0.192 -> ".192", -0.192 -> "-.192").
-    """
-    if int_value < 0:
-        sign = "-"
-        absv = -int_value
-    else:
-        sign = ""
-        absv = int_value
-    whole, frac = divmod(absv, 1000)
-    if whole == 0:
-        body = f"{sign}.{frac:03d}"
-    else:
-        body = f"{sign}{whole}.{frac:03d}"
-    return body.rjust(14)
 
 
 def _decode_epoch(
@@ -157,7 +98,9 @@ def _decode_epoch(
     # Actually hatanaka emits the epoch line including the n_sv field
     # padded — examine the test sample to verify.
 
-    # Walk each SV's data line.
+    # Walk each SV's data line. The whole per-SV decode (tokenisation,
+    # numeric NumDiff, flag TextDiff, F14.3 formatting, line assembly)
+    # is fused into a single C++ call via the CrinexSVDecoder class.
     for sv in sv_list:
         if idx >= len(crx_lines):
             break
@@ -167,64 +110,12 @@ def _decode_epoch(
         obs_codes = systems.get(sys_char, [])
         n_obs = len(obs_codes)
         if n_obs == 0:
-            # Header didn't declare this constellation — skip.
             continue
-        tokens, flag_delta = _split_numeric_tokens(data_line, n_obs)
-
-        # Get / create per-SV state.
-        st = sv_state.get(sv)
-        if st is None:
-            st = {
-                "channels": [_native.CrinexChannel() for _ in range(n_obs)],
-                "filled": [False] * n_obs,
-                "flags": _native.TextDiffState(),
-            }
-            sv_state[sv] = st
-        # Each numeric token decodes via NumDiff.
-        values: list[str] = []  # 14-char obs fields
-        for i, tok in enumerate(tokens):
-            tok = tok.strip()
-            if tok == "":
-                # Missing obs at this epoch. Reset its channel state so
-                # the next non-empty token must carry an init marker.
-                st["channels"][i] = _native.CrinexChannel()
-                st["filled"][i] = False
-                values.append(" " * 14)
-                continue
-            m = _INIT_TOKEN_RE.match(tok)
-            if m:
-                order = int(m.group(1))
-                value = int(m.group(2))
-                ch = _native.CrinexChannel()
-                ch.reset(order)
-                reconstructed = ch.step(value)
-                st["channels"][i] = ch
-                st["filled"][i] = True
-                values.append(_format_obs_value(reconstructed))
-            else:
-                if not st["filled"][i]:
-                    # No init pending and the token isn't an init —
-                    # use the default order with this value as init.
-                    ch = _native.CrinexChannel()
-                    ch.reset(_DEFAULT_ORDER)
-                    reconstructed = ch.step(int(tok))
-                    st["channels"][i] = ch
-                    st["filled"][i] = True
-                else:
-                    reconstructed = st["channels"][i].step(int(tok))
-                values.append(_format_obs_value(reconstructed))
-
-        # Pad the LLI/SSI delta to 2*n_obs chars (trimmed trailing spaces).
-        flag_padded = flag_delta.ljust(2 * n_obs)[: 2 * n_obs]
-        flag_text = st["flags"].step(flag_padded)
-        flag_text = flag_text.ljust(2 * n_obs)[: 2 * n_obs]
-
-        # Compose the RINEX 3 obs line: "PRN" + per-obs (value + LLI + SSI).
-        pieces = [sv]
-        for k in range(n_obs):
-            pieces.append(values[k])
-            pieces.append(flag_text[2 * k : 2 * k + 2])
-        out_lines.append("".join(pieces).rstrip())
+        dec = sv_state.get(sv)
+        if dec is None:
+            dec = _native.CrinexSVDecoder(sv, n_obs)
+            sv_state[sv] = dec
+        out_lines.append(dec.decode_line(data_line))
 
     return idx, out_lines
 
