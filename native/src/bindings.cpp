@@ -664,13 +664,17 @@ NB_MODULE(_ext, m) {
 
     nb::class_<rinexpy_native::CrinexSVDecoder>(m, "CrinexSVDecoder",
         "Fused per-SV CRINEX data-line decoder. Construct with a 3-char\n"
-        "PRN and n_obs (the number of obs types for the SV's\n"
-        "constellation). Call .decode_line(crx_line) per epoch to get\n"
-        "the reconstructed RINEX 3 OBS line.")
-        .def(nb::init<std::string, std::size_t>(),
-             nb::arg("sv_label"), nb::arg("n_obs"))
+        "PRN, n_obs (the number of obs types for the SV), and a\n"
+        "`flags_are_absolute` flag (False for CRINEX 3 = positional\n"
+        "TextDiff on LLI/SSI; True for CRINEX 1 = absolute LLI/SSI text\n"
+        "per epoch). Call .decode_line(crx_line) per epoch to get the\n"
+        "raw n_obs * 16-char obs string.")
+        .def(nb::init<std::string, std::size_t, bool>(),
+             nb::arg("sv_label"), nb::arg("n_obs"),
+             nb::arg("flags_are_absolute") = false)
         .def("decode_line", &rinexpy_native::CrinexSVDecoder::decode_line,
-             nb::arg("crx_line"));
+             nb::arg("crx_line"))
+        .def_prop_ro("sv_label", &rinexpy_native::CrinexSVDecoder::sv_label);
 
     nb::class_<rinexpy_native::TextDiffState>(m, "TextDiffState",
         "CRINEX TextDiff state: position-wise character-delta encoder.\n"

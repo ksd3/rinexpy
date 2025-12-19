@@ -31,21 +31,36 @@ namespace rinexpy_native {
 
 class CrinexSVDecoder {
 public:
-    // sv_label: 3-char PRN (e.g. "G07", "C08"). n_obs: number of obs
-    // types declared for this SV's constellation.
-    CrinexSVDecoder(std::string sv_label, std::size_t n_obs);
+    // sv_label: 3-char PRN (e.g. "G07", "C08"). For RINEX 3 output
+    // the caller can prepend `sv_label` to the returned obs string;
+    // for RINEX 2 the PRN isn't on the obs line so the label is
+    // metadata only. n_obs: number of obs types declared for this
+    // SV. flags_are_absolute: CRINEX 1 transmits the LLI/SSI string
+    // as absolute text per epoch (rstrip of trailing spaces). CRINEX
+    // 3 transmits it as a positional TextDiff. Default false (= v3
+    // semantics) preserves the original behavior.
+    CrinexSVDecoder(std::string sv_label, std::size_t n_obs,
+                    bool flags_are_absolute = false);
 
-    // Decode one CRINEX data line. Returns the standard RINEX 3 obs
-    // line for this epoch (PRN + n_obs * 16-char obs fields). Trailing
-    // whitespace is rstripped to match hatanaka's output.
+    // Decode one CRINEX data line. Returns the raw n_obs * 16-char
+    // observation string (F14.3 value + LLI + SSI per obs), no PRN
+    // prefix, no rstrip. The caller is responsible for emitting it
+    // in the right RINEX-version format (single line with PRN
+    // for v3; wrapped at 5 obs per line for v2).
     std::string decode_line(const std::string& crx_line);
+
+    // The PRN this decoder is associated with (returned to callers
+    // that need to thread it through metadata).
+    const std::string& sv_label() const noexcept { return sv_; }
 
 private:
     std::string sv_;
     std::size_t n_obs_;
+    bool flags_absolute_;
     std::vector<CrinexChannelState> channels_;
     std::vector<std::uint8_t> filled_;  // bool flags per channel
-    TextDiffState flags_;
+    TextDiffState flags_;           // CRINEX 3 mode
+    std::string flags_abs_state_;   // CRINEX 1 mode: literal prev LLI/SSI
 };
 
 }  // namespace rinexpy_native
