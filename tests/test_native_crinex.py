@@ -69,3 +69,45 @@ def test_intree_decoder_handles_gzip_via_load():
     import rinexpy as rp
     ds = rp.load(fixture("CEBR00ESP_R_20182000000_01D_30S_MO.crx.gz"))
     assert ds.sizes["time"] > 0 and ds.sizes["sv"] > 0
+
+
+@pytest.mark.parametrize("rnx_name", [
+    "14601736.18o",
+    "default_time_system2.10o",
+    "minimal2.10o",
+    "badtime.10o",
+])
+def test_intree_decoder_round_trips_rinex2_via_hatanaka(rnx_name):
+    """Take a RINEX 2 OBS fixture, compress it with hatanaka.rnx2crx,
+    then decompress it through BOTH the in-tree decoder and
+    hatanaka.crx2rnx. The two outputs must be byte-for-byte equal.
+
+    Exercises the CRINEX 1 path end-to-end: pair-level LLI/SSI
+    TextDiff, the leading-`&` reinit marker, multi-line per-SV
+    output, single global obs list, and the missing-obs-clears-slot
+    convention.
+    """
+    rnx_path = fixture(rnx_name)
+    rnx = rnx_path.read_text()
+    crx = hatanaka.rnx2crx(rnx)
+    mine = crx2rnx(crx)
+    ref = hatanaka.crx2rnx(crx)
+    assert mine == ref, (
+        f"length mine={len(mine)} ref={len(ref)}"
+        if len(mine) != len(ref)
+        else "byte content differs"
+    )
+
+
+def test_intree_decoder_handles_event_flag_epochs():
+    """Real CRINEX 1 files in the wild interleave normal obs epochs
+    with event-flag epochs (kinematic-start markers, occupation
+    annotations, etc.). The decoder must pass those event-text lines
+    through unchanged."""
+    rnx_path = fixture("14601736.18o")
+    crx = hatanaka.rnx2crx(rnx_path.read_text())
+    mine = crx2rnx(crx)
+    # Look for the comment text that lives inside an event-flag
+    # block in this fixture.
+    assert "*** Start of Kinematic Data ***" in mine
+    assert "*** Start of Occupation ***" in mine
