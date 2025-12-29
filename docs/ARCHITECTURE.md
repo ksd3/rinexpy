@@ -137,7 +137,8 @@ walk on its own.
 
 | extra | pulls in | enables |
 |---|---|---|
-| `hatanaka` | `hatanaka>=2.7` | CRINEX (`.crx*`) reads |
+| `native` | `rinexpy-native>=0.1` | C++ kernels — accelerated OBS3 reader **and** in-tree CRINEX 1+3 decoder (replaces `[hatanaka]`) |
+| `hatanaka` | `hatanaka>=2.7` | legacy pure-Python CRINEX decoder (fallback when `[native]` isn't installed) |
 | `lzw` | `ncompress>=1.0.1` | `.Z` (LZW) reads |
 | `netcdf` | `netCDF4>=1.6` | NetCDF read/write |
 | `geo` | `pymap3d>=3.1` | optional ECEF helpers (NOT a hard dep) |

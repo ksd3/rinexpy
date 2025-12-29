@@ -53,7 +53,8 @@ under `native/`. Drop the flag for a minimal install:
 
 ```sh
 uv sync                    # base: RINEX 2/3 + SP3 + NetCDF
-uv sync --extra hatanaka   # + CRINEX support
+uv sync --extra native     # + CRINEX support (preferred) + ~40x OBS3 reader
+uv sync --extra hatanaka   # + CRINEX support (legacy pure-Python alt)
 uv sync --extra plot       # + matplotlib helpers
 ```
 
@@ -92,7 +93,9 @@ Full support:
 - IONEX (`.inx`) TEC maps
 - ANTEX (`.atx`) phase-center variation
 - GZIP, BZ2, ZIP archives. LZW needs the `[lzw]` extra; Hatanaka
-  CRINEX needs `[hatanaka]`.
+  CRINEX (versions 1 and 3) ships with the `[native]` C++ extension
+  byte-for-byte against the reference decoder (the legacy `[hatanaka]`
+  Python package extra is still supported as a pure-Python fallback).
 - NTRIP v1/v2 client
 - NetCDF4/HDF5 read and write; Zarr write
 - StringIO input

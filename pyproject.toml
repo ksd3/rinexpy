@@ -28,12 +28,17 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# `[native]` is the recommended way to enable CRINEX 1 / CRINEX 3
+# decode -- the C++ extension ships an in-tree decoder that matches
+# the upstream hatanaka package byte-for-byte and is faster. The
+# legacy `[hatanaka]` extra is kept for users who can't install the
+# C++ wheel; if both are present, the in-tree path is preferred.
 hatanaka = ["hatanaka>=2.7"]
 lzw = ["ncompress>=1.0.1"]
 netcdf = ["netCDF4>=1.6"]
 geo = ["pymap3d>=3.1"]
 plot = ["matplotlib>=3.8"]
-all = ["hatanaka>=2.7", "ncompress>=1.0.1", "netCDF4>=1.6", "pymap3d>=3.1", "matplotlib>=3.8"]
+all = ["ncompress>=1.0.1", "netCDF4>=1.6", "pymap3d>=3.1", "matplotlib>=3.8"]
 jit = [
     "numba>=0.60",
 ]
