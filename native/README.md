@@ -26,7 +26,7 @@ Kernels currently shipped:
 | `gpt2w_eval_cell` | `rinexpy.gpt2w.gpt2w` | ~3.9x per query |
 | `spp_solve_native` | `rinexpy.positioning.spp_solve` | ~15x per fix |
 | `hatch_filter_native` | `rinexpy.qc.hatch_filter` | ~266x on 10k-epoch series |
-| `CrinexChannel`, `TextDiffState`, `CrinexSVDecoder` | full in-tree CRINEX 3 -> RINEX 3 OBS decoder (replaces the `hatanaka` package for CRINEX 3) | 1.3-2.7x faster than `hatanaka` (the reference C tool) on bundled fixtures |
+| `CrinexChannel`, `TextDiffState`, `CrinexSVDecoder` | full in-tree CRINEX 1 + CRINEX 3 -> RINEX 2/3 OBS decoder (drop-in replacement for the `hatanaka` Python package) | 1.3-2.7x on CRINEX 3, ~12-33x on CRINEX 1 (subprocess-startup wins) |
 
 ## Separate package
 
