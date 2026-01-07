@@ -133,11 +133,13 @@ def decode_message(msg_id: int, body: bytes) -> dict[str, Any]:
         1045: _decode_1045,
         1046: _decode_1046,
         1230: _decode_1230,
-        1057: _decode_1057,
-        1058: _decode_1058,
     }
     if msg_id in decoders:
         return decoders[msg_id](body)
+    # SSR family (RTCM 10403.3): 1057-1068 + 1240-1263 across GPS,
+    # GLONASS, Galileo, QZSS, SBAS, BeiDou.
+    if msg_id in _SSR_DISPATCH:
+        return _dispatch_ssr(msg_id, body)
     # MSM4 messages: 1074=GPS, 1084=GLO, 1094=GAL, 1104=SBAS, 1114=QZSS,
     # 1124=BDS, 1134=NavIC. Reduced-precision per-cell layout (no Doppler).
     if msg_id in {1074, 1084, 1094, 1104, 1114, 1124, 1134}:
@@ -841,6 +843,27 @@ _MSM_SYSTEM_LETTER: dict[int, str] = {
 }
 
 
+# Per-system SSR PRN field widths (DF068/DF384/DF252/DF429/DF430).
+# RTCM 10403.3 §3.5.21-22 (Table 3.5-83..96): GPS, Galileo, SBAS, BeiDou
+# all use 6 bits; GLONASS uses 5; QZSS uses 4.
+_SSR_PRN_BITS: dict[str, int] = {
+    "G": 6, "R": 5, "E": 6, "J": 4, "S": 6, "C": 6,
+}
+
+# Maps the SSR PRN-int back to the standard RINEX PRN string.
+def _ssr_prn_label(system: str, prn_int: int) -> str:
+    if system == "S":
+        # SBAS: PRN values stored 0-39 correspond to 120-158.
+        return f"S{prn_int + 120:03d}" if prn_int > 0 else f"S{prn_int:02d}"
+    return f"{system}{prn_int:02d}"
+
+
+# IODE bit-width per system (DF071 = 8 bits for GPS; varies for others).
+_SSR_IODE_BITS: dict[str, int] = {
+    "G": 8, "R": 8, "E": 10, "J": 8, "S": 9, "C": 10,
+}
+
+
 def _decode_ssr_header(body: bytes, *, has_datum: bool) -> tuple[dict[str, Any], int, int]:
     """Decode the common SSR header. Returns (header, bit_cursor, n_sats).
 
@@ -947,6 +970,205 @@ def _decode_1058(body: bytes) -> dict[str, Any]:
             "c2_m_per_s2": c2 * 2e-8,
         })
     return {"msg_id": 1058, "header": header, "satellites": sats}
+
+
+# ---------------------------------------------------------------------------
+# SSR family generalised: orbit, clock, combined, URA, high-rate clock, code
+# bias for all six constellations covered by RTCM 10403.3.
+# ---------------------------------------------------------------------------
+
+
+def _decode_ssr_orbit(body: bytes, system: str, msg_id: int) -> dict[str, Any]:
+    """SSR orbit (RAC) corrections, generic per-system.
+
+    Same field layout as :func:`_decode_1057` but with system-specific
+    PRN and IODE widths. Output uses RINEX PRN strings so callers can
+    key dictionaries by SV directly.
+    """
+    header, bit, n_sats = _decode_ssr_header(body, has_datum=True)
+    prn_bits = _SSR_PRN_BITS[system]
+    iode_bits = _SSR_IODE_BITS[system]
+    sats: list[dict[str, Any]] = []
+    for _ in range(n_sats):
+        prn = _bits(body, bit, prn_bits); bit += prn_bits
+        iode = _bits(body, bit, iode_bits); bit += iode_bits
+        d_radial = _bits(body, bit, 22, signed=True); bit += 22
+        d_along = _bits(body, bit, 20, signed=True); bit += 20
+        d_cross = _bits(body, bit, 20, signed=True); bit += 20
+        dot_radial = _bits(body, bit, 21, signed=True); bit += 21
+        dot_along = _bits(body, bit, 19, signed=True); bit += 19
+        dot_cross = _bits(body, bit, 19, signed=True); bit += 19
+        sats.append({
+            "sv": _ssr_prn_label(system, prn),
+            "prn": prn,
+            "iode": iode,
+            "delta_radial_m": d_radial * 1e-4,
+            "delta_along_track_m": d_along * 4e-4,
+            "delta_cross_track_m": d_cross * 4e-4,
+            "dot_delta_radial_m_per_s": dot_radial * 1e-6,
+            "dot_delta_along_track_m_per_s": dot_along * 4e-6,
+            "dot_delta_cross_track_m_per_s": dot_cross * 4e-6,
+        })
+    return {"msg_id": msg_id, "system": system, "header": header, "satellites": sats}
+
+
+def _decode_ssr_clock(body: bytes, system: str, msg_id: int) -> dict[str, Any]:
+    """SSR clock polynomial corrections, generic per-system."""
+    header, bit, n_sats = _decode_ssr_header(body, has_datum=False)
+    prn_bits = _SSR_PRN_BITS[system]
+    sats: list[dict[str, Any]] = []
+    for _ in range(n_sats):
+        prn = _bits(body, bit, prn_bits); bit += prn_bits
+        c0 = _bits(body, bit, 22, signed=True); bit += 22
+        c1 = _bits(body, bit, 21, signed=True); bit += 21
+        c2 = _bits(body, bit, 27, signed=True); bit += 27
+        sats.append({
+            "sv": _ssr_prn_label(system, prn),
+            "prn": prn,
+            "c0_m": c0 * 1e-4,
+            "c1_m_per_s": c1 * 1e-6,
+            "c2_m_per_s2": c2 * 2e-8,
+        })
+    return {"msg_id": msg_id, "system": system, "header": header, "satellites": sats}
+
+
+def _decode_ssr_combined(body: bytes, system: str, msg_id: int) -> dict[str, Any]:
+    """SSR combined orbit + clock corrections (a single message holds
+    both the RAC orbit deltas and the clock polynomial per SV)."""
+    header, bit, n_sats = _decode_ssr_header(body, has_datum=True)
+    prn_bits = _SSR_PRN_BITS[system]
+    iode_bits = _SSR_IODE_BITS[system]
+    sats: list[dict[str, Any]] = []
+    for _ in range(n_sats):
+        prn = _bits(body, bit, prn_bits); bit += prn_bits
+        iode = _bits(body, bit, iode_bits); bit += iode_bits
+        d_radial = _bits(body, bit, 22, signed=True); bit += 22
+        d_along = _bits(body, bit, 20, signed=True); bit += 20
+        d_cross = _bits(body, bit, 20, signed=True); bit += 20
+        dot_radial = _bits(body, bit, 21, signed=True); bit += 21
+        dot_along = _bits(body, bit, 19, signed=True); bit += 19
+        dot_cross = _bits(body, bit, 19, signed=True); bit += 19
+        c0 = _bits(body, bit, 22, signed=True); bit += 22
+        c1 = _bits(body, bit, 21, signed=True); bit += 21
+        c2 = _bits(body, bit, 27, signed=True); bit += 27
+        sats.append({
+            "sv": _ssr_prn_label(system, prn),
+            "prn": prn,
+            "iode": iode,
+            "delta_radial_m": d_radial * 1e-4,
+            "delta_along_track_m": d_along * 4e-4,
+            "delta_cross_track_m": d_cross * 4e-4,
+            "dot_delta_radial_m_per_s": dot_radial * 1e-6,
+            "dot_delta_along_track_m_per_s": dot_along * 4e-6,
+            "dot_delta_cross_track_m_per_s": dot_cross * 4e-6,
+            "c0_m": c0 * 1e-4,
+            "c1_m_per_s": c1 * 1e-6,
+            "c2_m_per_s2": c2 * 2e-8,
+        })
+    return {"msg_id": msg_id, "system": system, "header": header, "satellites": sats}
+
+
+def _decode_ssr_ura(body: bytes, system: str, msg_id: int) -> dict[str, Any]:
+    """SSR URA (User Range Accuracy) per SV; the 6-bit URA index is a
+    coded sigma value per RTCM 3.x Table 3.3-1."""
+    header, bit, n_sats = _decode_ssr_header(body, has_datum=False)
+    prn_bits = _SSR_PRN_BITS[system]
+    sats: list[dict[str, Any]] = []
+    for _ in range(n_sats):
+        prn = _bits(body, bit, prn_bits); bit += prn_bits
+        ura_index = _bits(body, bit, 6); bit += 6
+        sats.append({
+            "sv": _ssr_prn_label(system, prn),
+            "prn": prn,
+            "ura_index": ura_index,
+        })
+    return {"msg_id": msg_id, "system": system, "header": header, "satellites": sats}
+
+
+def _decode_ssr_hr_clock(body: bytes, system: str, msg_id: int) -> dict[str, Any]:
+    """SSR high-rate clock correction: a single C0 (no rate / accel)
+    per SV, transmitted at a higher cadence than 1058/1064 etc."""
+    header, bit, n_sats = _decode_ssr_header(body, has_datum=False)
+    prn_bits = _SSR_PRN_BITS[system]
+    sats: list[dict[str, Any]] = []
+    for _ in range(n_sats):
+        prn = _bits(body, bit, prn_bits); bit += prn_bits
+        hr_clock = _bits(body, bit, 22, signed=True); bit += 22
+        sats.append({
+            "sv": _ssr_prn_label(system, prn),
+            "prn": prn,
+            "hr_clock_m": hr_clock * 1e-4,
+        })
+    return {"msg_id": msg_id, "system": system, "header": header, "satellites": sats}
+
+
+def _decode_ssr_code_bias(body: bytes, system: str, msg_id: int) -> dict[str, Any]:
+    """SSR code-bias corrections per SV per signal.
+
+    Each SV carries a count of signals followed by (signal_id, bias_m)
+    pairs. The signal-ID enumeration is per-system per RTCM Tables
+    3.5-91/92/93/94/95 etc. We surface the raw IDs and let callers
+    map them via :data:`_SSR_SIGNAL_ID_NAMES_*` if they want.
+    """
+    header, bit, n_sats = _decode_ssr_header(body, has_datum=False)
+    prn_bits = _SSR_PRN_BITS[system]
+    sats: list[dict[str, Any]] = []
+    for _ in range(n_sats):
+        prn = _bits(body, bit, prn_bits); bit += prn_bits
+        n_sig = _bits(body, bit, 5); bit += 5
+        signals: list[dict[str, Any]] = []
+        for _ in range(n_sig):
+            sig_id = _bits(body, bit, 5); bit += 5
+            bias = _bits(body, bit, 14, signed=True); bit += 14
+            signals.append({
+                "signal_id": sig_id,
+                "bias_m": bias * 1e-2,
+            })
+        sats.append({
+            "sv": _ssr_prn_label(system, prn),
+            "prn": prn,
+            "n_signals": n_sig,
+            "signals": signals,
+        })
+    return {"msg_id": msg_id, "system": system, "header": header, "satellites": sats}
+
+
+# RTCM 10403.3 SSR message-id -> (system letter, function) lookup.
+# Used by decode_message() to dispatch generically.
+_SSR_DISPATCH: dict[int, tuple[str, str]] = {
+    # GPS
+    1057: ("G", "orbit"), 1058: ("G", "clock"), 1059: ("G", "code_bias"),
+    1060: ("G", "combined"), 1061: ("G", "ura"), 1062: ("G", "hr_clock"),
+    # GLONASS
+    1063: ("R", "orbit"), 1064: ("R", "clock"), 1065: ("R", "code_bias"),
+    1066: ("R", "combined"), 1067: ("R", "ura"), 1068: ("R", "hr_clock"),
+    # Galileo
+    1240: ("E", "orbit"), 1241: ("E", "clock"), 1242: ("E", "code_bias"),
+    1243: ("E", "combined"), 1244: ("E", "ura"), 1245: ("E", "hr_clock"),
+    # QZSS
+    1246: ("J", "orbit"), 1247: ("J", "clock"), 1248: ("J", "code_bias"),
+    1249: ("J", "combined"), 1250: ("J", "ura"), 1251: ("J", "hr_clock"),
+    # SBAS
+    1252: ("S", "orbit"), 1253: ("S", "clock"), 1254: ("S", "code_bias"),
+    1255: ("S", "combined"), 1256: ("S", "ura"), 1257: ("S", "hr_clock"),
+    # BeiDou
+    1258: ("C", "orbit"), 1259: ("C", "clock"), 1260: ("C", "code_bias"),
+    1261: ("C", "combined"), 1262: ("C", "ura"), 1263: ("C", "hr_clock"),
+}
+
+
+def _dispatch_ssr(msg_id: int, body: bytes) -> dict[str, Any]:
+    """Route an SSR message body through the matching generic decoder."""
+    system, kind = _SSR_DISPATCH[msg_id]
+    fn = {
+        "orbit": _decode_ssr_orbit,
+        "clock": _decode_ssr_clock,
+        "code_bias": _decode_ssr_code_bias,
+        "combined": _decode_ssr_combined,
+        "ura": _decode_ssr_ura,
+        "hr_clock": _decode_ssr_hr_clock,
+    }[kind]
+    return fn(body, system, msg_id)
 
 
 __all__ = ["PREAMBLE", "crc24q", "decode_message", "iter_messages"]
