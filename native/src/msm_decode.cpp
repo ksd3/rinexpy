@@ -102,33 +102,80 @@ MsmResult decode_msm(const std::uint8_t* body, std::size_t n_bytes,
     }
     bit += n_cells;
 
-    // Per-satellite block: 8+4+10+14 bits per SV (= 36 each).
-    if (bit + 36ULL * out.n_sv > bits_total) {
+    // Per-satellite block layout (RTCM 10403.3 §3.5.16):
+    //   MSM1, 2, 3:  rough_int_ms(8) + rough_mod_1ms(10)                  = 18
+    //   MSM4, 6:     rough_int_ms(8) + ext_info(4) + rough_mod_1ms(10)    = 22
+    //   MSM5, 7:     same as MSM4 + rough_doppler(14, signed)              = 36
+    const bool has_ext_info       = (msm_kind == 4 || msm_kind == 5 ||
+                                     msm_kind == 6 || msm_kind == 7);
+    const bool has_rough_doppler  = (msm_kind == 5 || msm_kind == 7);
+    const unsigned sat_block_bits = 8U
+                                  + (has_ext_info ? 4U : 0U)
+                                  + 10U
+                                  + (has_rough_doppler ? 14U : 0U);
+    if (bit + static_cast<std::size_t>(sat_block_bits) * out.n_sv > bits_total) {
         out.payload_truncated = true;
         return out;
     }
+    // COLUMN-MAJOR sat block: read all SVs' rough_int_ms, then all
+    // ext_info, then all rough_mod_1ms, then all rough_doppler.
     out.rough_range_ms.resize(out.n_sv);
-    out.extended_info.resize(out.n_sv);
-    out.rough_doppler.resize(out.n_sv);
+    out.extended_info.resize(out.n_sv, 0);
+    out.rough_doppler.resize(out.n_sv, 0);
+
+    std::vector<std::uint32_t> rough_int_ms(out.n_sv);
+    std::vector<std::uint32_t> rough_mod_1ms(out.n_sv);
     for (int k = 0; k < out.n_sv; ++k) {
-        const std::uint64_t rough_int_ms = read_bits(body, n_bytes, bit, 8);
+        rough_int_ms[k] = static_cast<std::uint32_t>(
+            read_bits(body, n_bytes, bit, 8));
         bit += 8;
-        const std::uint64_t ext_info = read_bits(body, n_bytes, bit, 4);
-        bit += 4;
-        const std::uint64_t rough_mod_1ms = read_bits(body, n_bytes, bit, 10);
+    }
+    if (has_ext_info) {
+        for (int k = 0; k < out.n_sv; ++k) {
+            out.extended_info[k] = static_cast<int>(
+                read_bits(body, n_bytes, bit, 4));
+            bit += 4;
+        }
+    }
+    for (int k = 0; k < out.n_sv; ++k) {
+        rough_mod_1ms[k] = static_cast<std::uint32_t>(
+            read_bits(body, n_bytes, bit, 10));
         bit += 10;
-        const std::int64_t rough_doppler = read_bits_signed(
-            body, n_bytes, bit, 14);
-        bit += 14;
-        out.rough_range_ms[k] = static_cast<double>(rough_int_ms)
-                              + static_cast<double>(rough_mod_1ms) / 1024.0;
-        out.extended_info[k] = static_cast<int>(ext_info);
-        out.rough_doppler[k] = static_cast<int>(rough_doppler);
+    }
+    if (has_rough_doppler) {
+        for (int k = 0; k < out.n_sv; ++k) {
+            out.rough_doppler[k] = static_cast<int>(
+                read_bits_signed(body, n_bytes, bit, 14));
+            bit += 14;
+        }
+    }
+    for (int k = 0; k < out.n_sv; ++k) {
+        out.rough_range_ms[k] = static_cast<double>(rough_int_ms[k])
+                              + static_cast<double>(rough_mod_1ms[k]) / 1024.0;
     }
 
-    // Per-cell signal block.
-    const unsigned bits_per_cell = (msm_kind == 7) ? 80U : 48U;
-    if (bit + static_cast<std::size_t>(bits_per_cell) * n_present > bits_total) {
+    // Per-cell signal block configuration:
+    //   MSM1:  fine_pr(15s) + lock(4) + halfcyc(1) + cnr(6)                       = 26
+    //   MSM2:  fine_phase(22s) + lock(4) + halfcyc(1) + cnr(6)                    = 33
+    //   MSM3, MSM4: fine_pr(15s) + fine_phase(22s) + lock(4) + halfcyc(1) + cnr(6) = 48
+    //   MSM5:  MSM4 layout + fine_doppler(15s)                                    = 63
+    //   MSM6:  fine_pr(20s) + fine_phase(24s) + lock(10) + halfcyc(1) + cnr(10)   = 65
+    //   MSM7:  MSM6 layout + fine_doppler(15s)                                    = 80
+    const bool has_code             = (msm_kind != 2);
+    const bool has_phase            = (msm_kind != 1);
+    const bool hi_prec              = (msm_kind == 6 || msm_kind == 7);
+    const bool has_fine_doppler     = (msm_kind == 5 || msm_kind == 7);
+    const unsigned fine_pr_bits     = hi_prec ? 20U : 15U;
+    const unsigned fine_phase_bits  = hi_prec ? 24U : 22U;
+    const unsigned lock_bits        = hi_prec ? 10U : 4U;
+    const unsigned cnr_bits         = hi_prec ? 10U : 6U;
+    const double fine_pr_scale      = hi_prec ? MSM7_FINE_PR_SCALE    : MSM4_FINE_PR_SCALE;
+    const double fine_phase_scale   = hi_prec ? MSM7_FINE_PHASE_SCALE : MSM4_FINE_PHASE_SCALE;
+    const unsigned cell_bits        = (has_code ? fine_pr_bits : 0U)
+                                    + (has_phase ? fine_phase_bits : 0U)
+                                    + lock_bits + 1U + cnr_bits
+                                    + (has_fine_doppler ? 15U : 0U);
+    if (bit + static_cast<std::size_t>(cell_bits) * n_present > bits_total) {
         out.payload_truncated = true;
         return out;
     }
@@ -143,64 +190,81 @@ MsmResult decode_msm(const std::uint8_t* body, std::size_t n_bytes,
     out.doppler_mps.reserve(n_present);
 
     const double nan_v = std::nan("");
+    // COLUMN-MAJOR cell block: all cells' fine_pr, then fine_phase,
+    // then lock, halfcyc, cnr, fine_doppler.
+    std::vector<std::int64_t> fine_pr_v(n_present, 0);
+    std::vector<std::int64_t> fine_phase_v(n_present, 0);
+    std::vector<int> lock_v(n_present, 0);
+    std::vector<int> halfcyc_v(n_present, 0);
+    std::vector<std::uint64_t> cnr_raw_v(n_present, 0);
+    std::vector<std::int64_t> fine_dop_v(n_present, 0);
+    if (has_code) {
+        for (std::size_t j = 0; j < n_present; ++j) {
+            fine_pr_v[j] = read_bits_signed(body, n_bytes, bit, fine_pr_bits);
+            bit += fine_pr_bits;
+        }
+    }
+    if (has_phase) {
+        for (std::size_t j = 0; j < n_present; ++j) {
+            fine_phase_v[j] = read_bits_signed(body, n_bytes, bit, fine_phase_bits);
+            bit += fine_phase_bits;
+        }
+    }
+    for (std::size_t j = 0; j < n_present; ++j) {
+        lock_v[j] = static_cast<int>(read_bits(body, n_bytes, bit, lock_bits));
+        bit += lock_bits;
+    }
+    for (std::size_t j = 0; j < n_present; ++j) {
+        halfcyc_v[j] = static_cast<int>(read_bits(body, n_bytes, bit, 1));
+        bit += 1;
+    }
+    for (std::size_t j = 0; j < n_present; ++j) {
+        cnr_raw_v[j] = read_bits(body, n_bytes, bit, cnr_bits);
+        bit += cnr_bits;
+    }
+    if (has_fine_doppler) {
+        for (std::size_t j = 0; j < n_present; ++j) {
+            fine_dop_v[j] = read_bits_signed(body, n_bytes, bit, 15);
+            bit += 15;
+        }
+    }
+
+    out.obs_sv_k.reserve(n_present);
+    out.obs_sig_k.reserve(n_present);
+    out.pseudorange_m.reserve(n_present);
+    out.phase_m.reserve(n_present);
+    out.lock_time.reserve(n_present);
+    out.half_cycle_ambiguity.reserve(n_present);
+    out.cnr_dbhz.reserve(n_present);
+    out.doppler_mps.reserve(n_present);
+
+    std::size_t present_iter = 0;
     for (std::size_t cell_idx = 0; cell_idx < n_cells; ++cell_idx) {
         if (!out.cell_mask[cell_idx]) continue;
-
         const int sv_k = static_cast<int>(cell_idx / out.n_sig);
         const int sig_k = static_cast<int>(cell_idx % out.n_sig);
         const double rough_ms = out.rough_range_ms[sv_k];
+        const std::size_t j = present_iter++;
 
-        double pr_m, phase_m, doppler_mps_v, cnr;
-        int lock, halfcyc;
-
-        if (msm_kind == 7) {
-            const std::int64_t fine_pr = read_bits_signed(
-                body, n_bytes, bit, 20);
-            bit += 20;
-            const std::int64_t fine_phase = read_bits_signed(
-                body, n_bytes, bit, 24);
-            bit += 24;
-            lock = static_cast<int>(read_bits(body, n_bytes, bit, 10));
-            bit += 10;
-            halfcyc = static_cast<int>(read_bits(body, n_bytes, bit, 1));
-            bit += 1;
-            cnr = static_cast<double>(read_bits(body, n_bytes, bit, 10))
-                  / 16.0;
-            bit += 10;
-            const std::int64_t fine_dop = read_bits_signed(
-                body, n_bytes, bit, 15);
-            bit += 15;
-            pr_m = (rough_ms + static_cast<double>(fine_pr)
-                    * MSM7_FINE_PR_SCALE) * SPEED_OF_LIGHT_M_PER_MS;
-            phase_m = (rough_ms + static_cast<double>(fine_phase)
-                       * MSM7_FINE_PHASE_SCALE) * SPEED_OF_LIGHT_M_PER_MS;
-            doppler_mps_v = static_cast<double>(fine_dop) * 1e-4;
-        } else {
-            const std::int64_t fine_pr = read_bits_signed(
-                body, n_bytes, bit, 15);
-            bit += 15;
-            const std::int64_t fine_phase = read_bits_signed(
-                body, n_bytes, bit, 22);
-            bit += 22;
-            lock = static_cast<int>(read_bits(body, n_bytes, bit, 4));
-            bit += 4;
-            halfcyc = static_cast<int>(read_bits(body, n_bytes, bit, 1));
-            bit += 1;
-            cnr = static_cast<double>(read_bits(body, n_bytes, bit, 6));
-            bit += 6;
-            pr_m = (rough_ms + static_cast<double>(fine_pr)
-                    * MSM4_FINE_PR_SCALE) * SPEED_OF_LIGHT_M_PER_MS;
-            phase_m = (rough_ms + static_cast<double>(fine_phase)
-                       * MSM4_FINE_PHASE_SCALE) * SPEED_OF_LIGHT_M_PER_MS;
-            doppler_mps_v = nan_v;
-        }
+        const double pr_m = has_code
+            ? (rough_ms + static_cast<double>(fine_pr_v[j]) * fine_pr_scale) * SPEED_OF_LIGHT_M_PER_MS
+            : nan_v;
+        const double phase_m = has_phase
+            ? (rough_ms + static_cast<double>(fine_phase_v[j]) * fine_phase_scale) * SPEED_OF_LIGHT_M_PER_MS
+            : nan_v;
+        const double cnr = hi_prec
+            ? (static_cast<double>(cnr_raw_v[j]) / 16.0)
+            : static_cast<double>(cnr_raw_v[j]);
+        const double doppler_mps_v = has_fine_doppler
+            ? (static_cast<double>(fine_dop_v[j]) * 1e-4)
+            : nan_v;
 
         out.obs_sv_k.push_back(sv_k);
         out.obs_sig_k.push_back(sig_k);
         out.pseudorange_m.push_back(pr_m);
         out.phase_m.push_back(phase_m);
-        out.lock_time.push_back(lock);
-        out.half_cycle_ambiguity.push_back(halfcyc);
+        out.lock_time.push_back(lock_v[j]);
+        out.half_cycle_ambiguity.push_back(halfcyc_v[j]);
         out.cnr_dbhz.push_back(cnr);
         out.doppler_mps.push_back(doppler_mps_v);
     }

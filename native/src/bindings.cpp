@@ -183,8 +183,8 @@ interpolate_sp3_py(
 // from these arrays so existing callers (test_rtcm3_real, NTRIP
 // streamers, real-time PPP) don't have to change.
 nb::dict decode_msm_py(nb::bytes body, int msm_kind) {
-    if (msm_kind != 4 && msm_kind != 7) {
-        throw std::invalid_argument("msm_kind must be 4 or 7");
+    if (msm_kind < 1 || msm_kind > 7) {
+        throw std::invalid_argument("msm_kind must be in [1, 7]");
     }
     const auto* ptr = reinterpret_cast<const std::uint8_t*>(body.c_str());
     const std::size_t n = body.size();

@@ -123,11 +123,12 @@ def test_decode_msm4_full_with_one_cell():
         (sv_mask & 0xFFFFFFFF, 32),
         (sig_mask, 32),
         (1, 1),  # cell mask: 1 cell present
-        # Per-satellite (36 bits).
+        # Per-satellite MSM4 layout (22 bits): rough_int_ms(8) +
+        # ext_info(4) + rough_mod_1ms(10). MSM4 does NOT carry
+        # rough_doppler (that's the MSM5/MSM7 layout).
         (10, 8),
         (0, 4),
         (512, 10),
-        (0, 14),
         # Per-cell MSM4 (15+22+4+1+6 = 48 bits).
         (1000, 15),  # fine PR (signed)
         (2000, 22),  # fine phase

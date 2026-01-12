@@ -140,14 +140,14 @@ def decode_message(msg_id: int, body: bytes) -> dict[str, Any]:
     # GLONASS, Galileo, QZSS, SBAS, BeiDou.
     if msg_id in _SSR_DISPATCH:
         return _dispatch_ssr(msg_id, body)
-    # MSM4 messages: 1074=GPS, 1084=GLO, 1094=GAL, 1104=SBAS, 1114=QZSS,
-    # 1124=BDS, 1134=NavIC. Reduced-precision per-cell layout (no Doppler).
-    if msg_id in {1074, 1084, 1094, 1104, 1114, 1124, 1134}:
-        return _decode_msm_header(msg_id, body, msm_kind=4)
-    # MSM7 messages: 1077=GPS, 1087=GLO, 1097=GAL, 1107=SBAS, 1117=QZSS,
-    # 1127=BDS, 1137=NavIC. Full-precision per-cell layout.
-    if msg_id in {1077, 1087, 1097, 1107, 1117, 1127, 1137}:
-        return _decode_msm_header(msg_id, body, msm_kind=7)
+    # MSM1..MSM7 family per RTCM 10403.3 §3.5.16. Same header for all
+    # types; per-satellite and per-cell layouts vary by msm_kind.
+    # Per-constellation 10-block ranges: GPS 107X, GLO 108X, GAL 109X,
+    # SBAS 110X, QZSS 111X, BDS 112X, NavIC 113X.
+    base = msg_id - (msg_id // 10) * 10
+    block = msg_id // 10 * 10
+    if block in (1070, 1080, 1090, 1100, 1110, 1120, 1130) and 1 <= base <= 7:
+        return _decode_msm_header(msg_id, body, msm_kind=base)
     return {"msg_id": msg_id, "payload_bytes": body}
 
 
@@ -732,39 +732,124 @@ def _decode_msm_header(msg_id: int, body: bytes, *, msm_kind: int = 7) -> dict[s
     bit += n_cells
     out["cell_mask"] = cell_mask_bits
 
-    # Per-satellite block (MSM7): for each SV, 8+4+10+14 = 36 bits.
-    sats: list[dict[str, Any]] = []
+    # Per-satellite block: COLUMN-MAJOR per RTCM 10403.3 §3.5.16.2.
+    # Wire order is "all SVs' rough_int_ms, then all SVs' ext_info,
+    # then all SVs' rough_mod_1ms, then all SVs' rough_doppler".
+    # MSM1/2/3 omit ext_info; MSM1/2/3/4/6 omit rough_doppler.
+    has_ext_info = msm_kind in (4, 5, 6, 7)
+    has_rough_doppler = msm_kind in (5, 7)
+    sat_block_bits = 8 + (4 if has_ext_info else 0) + 10 + (14 if has_rough_doppler else 0)
+
     sat_letter = _MSM_SYSTEM_LETTER.get(msg_id, "?")
-    if bit + 36 * n_sv > 8 * len(body):
+    if bit + sat_block_bits * n_sv > 8 * len(body):
         out["payload_truncated"] = True
         return out
-    for sv_idx in sv_indices:
-        rough_int_ms = _bits(body, bit, 8)
-        bit += 8
-        ext_info = _bits(body, bit, 4)
-        bit += 4
-        rough_mod_1ms = _bits(body, bit, 10)
-        bit += 10
-        rough_doppler = _bits(body, bit, 14, signed=True)
-        bit += 14
-        sats.append(
-            {
-                "sv": f"{sat_letter}{sv_idx + 1:02d}",
-                "rough_range_ms": rough_int_ms + rough_mod_1ms / 1024.0,
-                "extended_info": ext_info,
-                "rough_doppler_mps": rough_doppler,
-            }
-        )
+
+    rough_int = [0] * n_sv
+    ext_infos = [0] * n_sv
+    rough_mod = [0] * n_sv
+    rough_dop = [0] * n_sv
+    for i in range(n_sv):
+        rough_int[i] = _bits(body, bit, 8); bit += 8
+    if has_ext_info:
+        for i in range(n_sv):
+            ext_infos[i] = _bits(body, bit, 4); bit += 4
+    for i in range(n_sv):
+        rough_mod[i] = _bits(body, bit, 10); bit += 10
+    if has_rough_doppler:
+        for i in range(n_sv):
+            rough_dop[i] = _bits(body, bit, 14, signed=True); bit += 14
+
+    sats: list[dict[str, Any]] = []
+    for i, sv_idx in enumerate(sv_indices):
+        sats.append({
+            "sv": f"{sat_letter}{sv_idx + 1:02d}",
+            "rough_range_ms": rough_int[i] + rough_mod[i] / 1024.0,
+            "extended_info": ext_infos[i],
+            "rough_doppler_mps": rough_dop[i],
+        })
     out["satellites"] = sats
 
-    # Per-cell signal block.
-    bits_per_cell = 80 if msm_kind == 7 else 48
+    # Per-cell signal block layout:
+    #   MSM1:  15 (fine_pr)             + 4 (lock) + 1 (halfcyc) + 6 (CNR)           = 26 bits
+    #   MSM2:                15 (fine_phase) + 4 + 1 + 6                              = wait
+    #
+    # Actually per RTCM 10403.3 Table 3.5-78..-83:
+    #   MSM1:  fine_pr(15s) + lock(4) + halfcyc(1) + cnr(6)                          = 26 bits
+    #   MSM2:  fine_phase(22s) + lock(4) + halfcyc(1) + cnr(6)                       = 33 bits
+    #   MSM3:  fine_pr(15s) + fine_phase(22s) + lock(4) + halfcyc(1) + cnr(6)        = 48 bits
+    #   MSM4:  fine_pr(15s) + fine_phase(22s) + lock(4) + halfcyc(1) + cnr(6)        = 48 bits
+    #          (same as MSM3 -- MSM4 differs in SAT block, not cell block)
+    #   MSM5:  fine_pr(15s) + fine_phase(22s) + lock(4) + halfcyc(1) + cnr(6)
+    #          + fine_doppler(15s)                                                    = 63 bits
+    #   MSM6:  fine_pr(20s) + fine_phase(24s) + lock(10) + halfcyc(1) + cnr(10)      = 65 bits
+    #   MSM7:  fine_pr(20s) + fine_phase(24s) + lock(10) + halfcyc(1) + cnr(10)
+    #          + fine_doppler(15s)                                                    = 80 bits
+    _MSM_CELL_BITS = {1: 26, 2: 33, 3: 48, 4: 48, 5: 63, 6: 65, 7: 80}
+    bits_per_cell = _MSM_CELL_BITS[msm_kind]
     n_present = sum(cell_mask_bits)
     if bit + bits_per_cell * n_present > 8 * len(body):
         out["payload_truncated"] = True
         return out
 
+    # Per-cell scale factors and field widths vary by MSM type.
+    # `has_code`, `has_phase`, `has_fine_doppler` toggle which fields
+    # are present; `*_bits` and `*_scale` configure the bit widths and
+    # ms→m conversion for the present fields. Reference: RTCM 10403.3
+    # tables 3.5-78 .. 3.5-84.
+    if msm_kind == 1:
+        has_code, has_phase, hi_prec, has_fine_doppler = True, False, False, False
+    elif msm_kind == 2:
+        has_code, has_phase, hi_prec, has_fine_doppler = False, True, False, False
+    elif msm_kind == 3:
+        has_code, has_phase, hi_prec, has_fine_doppler = True, True, False, False
+    elif msm_kind == 4:
+        has_code, has_phase, hi_prec, has_fine_doppler = True, True, False, False
+    elif msm_kind == 5:
+        has_code, has_phase, hi_prec, has_fine_doppler = True, True, False, True
+    elif msm_kind == 6:
+        has_code, has_phase, hi_prec, has_fine_doppler = True, True, True, False
+    elif msm_kind == 7:
+        has_code, has_phase, hi_prec, has_fine_doppler = True, True, True, True
+    else:
+        raise ValueError(f"unsupported MSM kind {msm_kind}")
+
+    fine_pr_bits = 20 if hi_prec else 15
+    fine_phase_bits = 24 if hi_prec else 22
+    lock_bits = 10 if hi_prec else 4
+    cnr_bits = 10 if hi_prec else 6
+    fine_pr_scale = 2.0 ** -29 if hi_prec else 2.0 ** -24
+    fine_phase_scale = 2.0 ** -31 if hi_prec else 2.0 ** -29
+
+    # Cell block also column-major: all cells' fine_pr first, then all
+    # cells' fine_phase, then lock, halfcyc, cnr, fine_doppler.
+    n_cell_present = n_present
+    cells_fine_pr = [0] * n_cell_present
+    cells_fine_phase = [0] * n_cell_present
+    cells_lock = [0] * n_cell_present
+    cells_halfcyc = [0] * n_cell_present
+    cells_cnr_raw = [0] * n_cell_present
+    cells_fine_dop = [0] * n_cell_present
+    if has_code:
+        for j in range(n_cell_present):
+            cells_fine_pr[j] = _bits(body, bit, fine_pr_bits, signed=True)
+            bit += fine_pr_bits
+    if has_phase:
+        for j in range(n_cell_present):
+            cells_fine_phase[j] = _bits(body, bit, fine_phase_bits, signed=True)
+            bit += fine_phase_bits
+    for j in range(n_cell_present):
+        cells_lock[j] = _bits(body, bit, lock_bits); bit += lock_bits
+    for j in range(n_cell_present):
+        cells_halfcyc[j] = _bits(body, bit, 1); bit += 1
+    for j in range(n_cell_present):
+        cells_cnr_raw[j] = _bits(body, bit, cnr_bits); bit += cnr_bits
+    if has_fine_doppler:
+        for j in range(n_cell_present):
+            cells_fine_dop[j] = _bits(body, bit, 15, signed=True); bit += 15
+
     observations: list[dict[str, Any]] = []
+    present_iter = 0
     for cell_idx, present in enumerate(cell_mask_bits):
         if not present:
             continue
@@ -773,38 +858,24 @@ def _decode_msm_header(msg_id: int, body: bytes, *, msm_kind: int = 7) -> dict[s
         sv_label = sats[sv_k]["sv"]
         rough_ms = sats[sv_k]["rough_range_ms"]
 
-        if msm_kind == 7:
-            fine_pr = _bits(body, bit, 20, signed=True)
-            bit += 20
-            fine_phase = _bits(body, bit, 24, signed=True)
-            bit += 24
-            lock = _bits(body, bit, 10)
-            bit += 10
-            halfcyc = _bits(body, bit, 1)
-            bit += 1
-            cnr = _bits(body, bit, 10) / 16.0
-            bit += 10
-            fine_dop = _bits(body, bit, 15, signed=True)
-            bit += 15
-            # Fine PR scale: 2^-29 ms; fine phase scale: 2^-31 ms.
-            pr_m = (rough_ms + fine_pr * 2**-29) * _MSM_C
-            phase_m = (rough_ms + fine_phase * 2**-31) * _MSM_C
-            doppler_mps = fine_dop * 1e-4
+        j = present_iter
+        present_iter += 1
+
+        if has_code:
+            pr_m = (rough_ms + cells_fine_pr[j] * fine_pr_scale) * _MSM_C
         else:
-            # MSM4: 15+22+4+1+6 bits, no fine Doppler.
-            fine_pr = _bits(body, bit, 15, signed=True)
-            bit += 15
-            fine_phase = _bits(body, bit, 22, signed=True)
-            bit += 22
-            lock = _bits(body, bit, 4)
-            bit += 4
-            halfcyc = _bits(body, bit, 1)
-            bit += 1
-            cnr = float(_bits(body, bit, 6))
-            bit += 6
-            # MSM4 PR scale: 2^-24 ms; phase scale: 2^-29 ms.
-            pr_m = (rough_ms + fine_pr * 2**-24) * _MSM_C
-            phase_m = (rough_ms + fine_phase * 2**-29) * _MSM_C
+            pr_m = float("nan")
+        if has_phase:
+            phase_m = (rough_ms + cells_fine_phase[j] * fine_phase_scale) * _MSM_C
+        else:
+            phase_m = float("nan")
+        lock = cells_lock[j]
+        halfcyc = cells_halfcyc[j]
+        cnr_raw = cells_cnr_raw[j]
+        cnr = (cnr_raw / 16.0) if hi_prec else float(cnr_raw)
+        if has_fine_doppler:
+            doppler_mps = cells_fine_dop[j] * 1e-4
+        else:
             doppler_mps = float("nan")
 
         observations.append(
@@ -824,22 +895,16 @@ def _decode_msm_header(msg_id: int, body: bytes, *, msm_kind: int = 7) -> dict[s
 
 
 _MSM_SYSTEM_LETTER: dict[int, str] = {
-    # MSM4
-    1074: "G",
-    1084: "R",
-    1094: "E",
-    1104: "S",
-    1114: "J",
-    1124: "C",
-    1134: "I",
-    # MSM7
-    1077: "G",
-    1087: "R",
-    1097: "E",
-    1107: "S",
-    1117: "J",
-    1127: "C",
-    1137: "I",
+    # Generated for all 7 MSM kinds * 7 constellations: GPS=107X,
+    # GLONASS=108X, Galileo=109X, SBAS=110X, QZSS=111X, BeiDou=112X,
+    # NavIC=113X. Last digit is the MSM kind (1..7).
+    **{1070 + k: "G" for k in range(1, 8)},
+    **{1080 + k: "R" for k in range(1, 8)},
+    **{1090 + k: "E" for k in range(1, 8)},
+    **{1100 + k: "S" for k in range(1, 8)},
+    **{1110 + k: "J" for k in range(1, 8)},
+    **{1120 + k: "C" for k in range(1, 8)},
+    **{1130 + k: "I" for k in range(1, 8)},
 }
 
 
