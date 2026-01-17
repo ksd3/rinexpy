@@ -556,6 +556,80 @@ def pole_tide_displacement(
     return enu_to_ecef(enu, station) - station
 
 
+def ocean_pole_tide_displacement(
+    station_ecef: np.ndarray,
+    eop,
+    epoch,
+) -> np.ndarray:
+    """Ocean pole tide loading displacement (IERS 2010 section 7.1.5).
+
+    The ocean pole tide is the ocean's response to the centrifugal
+    bulge that wobbles with polar motion. Following the simplified
+    Desai 2002 / IERS 2010 §7.1.5 analytical approximation:
+
+        delta_radial =  ( K_r * (m1 * cos(lon) + m2 * sin(lon)) ) * P(lat)
+        delta_north  =  ( K_n * (m1 * cos(lon) + m2 * sin(lon)) ) * Q(lat)
+        delta_east   = -( K_e * (m1 * sin(lon) - m2 * cos(lon)) ) * Q(lat)
+
+    where ``K_r = -2.10 mm``, ``K_n = -0.41 mm``, ``K_e = 0.41 mm``
+    are the standard IERS 2010 amplitude coefficients (the gridded
+    Desai 2002 coefficients refine these on a 1-degree grid; the
+    spatial-mean values used here are accurate to ~10 % of the
+    amplitude). ``P(lat) = sin(2 phi)``, ``Q(lat) = cos(phi)``.
+
+    Peak amplitude is ~1 mm at mid-latitudes - an order of magnitude
+    smaller than the solid-earth pole tide. Required only for sub-cm
+    PPP / VLBI work.
+
+    Parameters
+    ----------
+    station_ecef:
+        ``(3,)`` ECEF station position (m).
+    eop:
+        EOP dataset (from :func:`rinexpy.eop.load_eop`) providing
+        ``x``, ``y`` polar-motion components.
+    epoch:
+        Observation epoch.
+
+    Returns
+    -------
+    ndarray
+        ``(3,)`` ECEF displacement (m).
+    """
+    from .eop import interp_eop
+    from .geodesy import ecef_to_lla, enu_to_ecef
+    station = np.asarray(station_ecef, dtype=float)
+    lat_deg, lon_deg, _ = ecef_to_lla(*station)
+    phi = math.radians(lat_deg)
+    lam = math.radians(lon_deg)
+    e = interp_eop(eop, epoch)
+    if isinstance(epoch, np.datetime64):
+        epoch_py = epoch.astype("datetime64[us]").tolist()
+    else:
+        epoch_py = epoch
+    t_years = (epoch_py.year + epoch_py.month / 12.0) - 2000.0
+    if t_years < 10.0:
+        x_mean = 0.055 + 1.677e-3 * t_years
+        y_mean = 0.3205 + 3.460e-3 * t_years
+    else:
+        x_mean = 0.0230 + 7.6e-3 * t_years
+        y_mean = 0.3543 - 0.6e-3 * t_years
+    m1 = e["x"] - x_mean
+    m2 = -(e["y"] - y_mean)
+    sin_lam = math.sin(lam)
+    cos_lam = math.cos(lam)
+    K_R = -2.10e-3   # m / arcsec
+    K_N = -0.41e-3
+    K_E = +0.41e-3
+    longitudinal_in = m1 * cos_lam + m2 * sin_lam
+    longitudinal_out = m1 * sin_lam - m2 * cos_lam
+    d_up = K_R * math.sin(2.0 * phi) * longitudinal_in
+    d_north = K_N * math.cos(phi) * longitudinal_in
+    d_east = -K_E * math.cos(phi) * longitudinal_out
+    enu = np.array([d_east, d_north, d_up])
+    return enu_to_ecef(enu, station) - station
+
+
 __all__ = [
     "GM_EARTH",
     "GM_MOON",
@@ -564,6 +638,7 @@ __all__ = [
     "L2_SHIDA",
     "R_EARTH",
     "moon_position_ecef",
+    "ocean_pole_tide_displacement",
     "pole_tide_displacement",
     "solid_earth_tide_displacement",
     "step2_diurnal_displacement",

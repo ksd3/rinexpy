@@ -60,6 +60,7 @@ from .interp import interpolate_sp3
 from .ionex import interp_tec, load_ionex, slant_tec
 from .keplerian import keplerian2ecef
 from .lambda_ar import lambda_resolve
+from .met import load_met
 from .multifreq import lambda_dual_freq
 from .nav2 import navtime2, rinexnav2
 from .nav3 import navtime3, rinexnav3
@@ -92,6 +93,7 @@ __all__ = [
     "load_eop",
     "load_gpt2w_grid",
     "load_ionex",
+    "load_met",
     "load_sp3",
     "stitch_sp3",
     "navheader2",

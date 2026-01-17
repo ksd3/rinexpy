@@ -140,6 +140,9 @@ def decode_message(msg_id: int, body: bytes) -> dict[str, Any]:
     # GLONASS, Galileo, QZSS, SBAS, BeiDou.
     if msg_id in _SSR_DISPATCH:
         return _dispatch_ssr(msg_id, body)
+    # IGS-SSR (proprietary MT 4076).
+    if msg_id == 4076:
+        return _decode_igs_ssr_4076(body)
     # MSM1..MSM7 family per RTCM 10403.3 §3.5.16. Same header for all
     # types; per-satellite and per-cell layouts vary by msm_kind.
     # Per-constellation 10-block ranges: GPS 107X, GLO 108X, GAL 109X,
@@ -1196,6 +1199,56 @@ def _decode_ssr_code_bias(body: bytes, system: str, msg_id: int) -> dict[str, An
             "signals": signals,
         })
     return {"msg_id": msg_id, "system": system, "header": header, "satellites": sats}
+
+
+def _decode_igs_ssr_4076(body: bytes) -> dict[str, Any]:
+    """IGS-SSR (RTCM proprietary MT 4076).
+
+    Layout per the IGS State-Space Representation Format (IGS RTCM-SSR
+    Working Group, v1.0 / v1.1): a 4-bit IGS-SSR Version + 8-bit
+    Subtype-ID followed by a body whose shape depends on the subtype.
+
+    Subtype IDs in current use (from IGS-SSR v1.0):
+        21..25 GPS    Orbit / Clock / Combined / URA / HighRate
+        41..45 GLO
+        61..65 GAL
+        81..85 QZSS
+        101..105 SBAS
+        121..125 BDS
+        141..145 NavIC / IRNSS
+        201, 202: Code/Phase biases
+        21..25 with offset for satellite groups
+
+    Rather than maintain a per-subtype table separate from the canonical
+    SSR decoders we surface the header (version, subtype) plus the raw
+    payload bytes so callers can route subtypes through the matching
+    ``_decode_ssr_*`` helper above. The subtype-to-(system, kind) map
+    follows the IGS spec.
+    """
+    bit = 12
+    version = _bits(body, bit, 3); bit += 3
+    subtype = _bits(body, bit, 8); bit += 8
+    out: dict[str, Any] = {
+        "msg_id": 4076,
+        "igs_ssr_version": version,
+        "igs_ssr_subtype": subtype,
+        "payload_bytes": bytes(body[(bit + 7) // 8:]),
+    }
+    # Map subtype -> (system, kind) per IGS-SSR v1.0 §3.
+    _IGS_SSR_SUBTYPE: dict[int, tuple[str, str]] = {}
+    for sys_letter, base in [("G", 21), ("R", 41), ("E", 61),
+                             ("J", 81), ("S", 101), ("C", 121),
+                             ("I", 141)]:
+        _IGS_SSR_SUBTYPE[base + 0] = (sys_letter, "orbit")
+        _IGS_SSR_SUBTYPE[base + 1] = (sys_letter, "clock")
+        _IGS_SSR_SUBTYPE[base + 2] = (sys_letter, "combined")
+        _IGS_SSR_SUBTYPE[base + 3] = (sys_letter, "ura")
+        _IGS_SSR_SUBTYPE[base + 4] = (sys_letter, "hr_clock")
+    if subtype in _IGS_SSR_SUBTYPE:
+        sys_letter, kind = _IGS_SSR_SUBTYPE[subtype]
+        out["system"] = sys_letter
+        out["kind"] = kind
+    return out
 
 
 # RTCM 10403.3 SSR message-id -> (system letter, function) lookup.
