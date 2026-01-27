@@ -13,6 +13,10 @@ from rinexpy.glonass import (
     F_L1OF_STEP_HZ,
     F_L2OF_BASE_HZ,
     F_L2OF_STEP_HZ,
+    decode_glonass_string,
+    decode_glonass_string1,
+    decode_glonass_string2,
+    decode_glonass_string3,
     frequencies_array,
     iono_free_phase,
     iono_free_pseudorange,
@@ -104,3 +108,124 @@ def test_phase_cycles_to_meters_l2():
     phi = np.array([1000.0])
     out = phase_cycles_to_meters(phi, chans, band="L2")
     assert out[0] == pytest.approx(1000.0 * l2_wavelength_m(3))
+
+
+# ---------------------------------------------------------------------------
+# Raw string decoders
+# ---------------------------------------------------------------------------
+
+
+def _sm_encode(value: int, n: int) -> int:
+    """Encode a signed integer in n-bit sign-magnitude."""
+    if value < 0:
+        return (1 << (n - 1)) | (-value)
+    return value
+
+
+def _pack_string(fields: list[tuple[int, int, int]]) -> bytes:
+    """Pack a list of ``(icd_first_bit, n_bits, raw_value)`` into 11 bytes.
+
+    icd_first_bit is the highest ICD bit number of the field; bits are
+    placed at offset (85 - icd_first_bit) MSB-first, matching the
+    decoder. Output is exactly 88 bits (11 bytes), where the last
+    3 bits are zero pad past ICD bit 1.
+    """
+    bits = ["0"] * 88
+    for icd_first, n, value in fields:
+        offset = 85 - icd_first
+        raw = value & ((1 << n) - 1)
+        bs = f"{raw:0{n}b}"
+        for i, b in enumerate(bs):
+            bits[offset + i] = b
+    s = "".join(bits)
+    return bytes(int(s[i : i + 8], 2) for i in range(0, 88, 8))
+
+
+def test_glonass_string1_round_trip():
+    # X = -1234 km magnitude, X_dot = 0.5 km/s, X_dot_dot = -0.001 km/s^2
+    x_raw = _sm_encode(-1234 * (1 << 11), 27)              # 2^-11 km
+    xdot_raw = _sm_encode(int(0.5 * (1 << 20)), 24)        # 2^-20 km/s
+    xddot_raw = _sm_encode(-(int(0.001 * (1 << 30))) >> 25, 5)  # not great; pick a small fittable value
+    # use exact representable: 3 * 2^-30 km/s^2
+    xddot_raw = _sm_encode(3, 5)
+    # t_k: 12h 30min 30s -> raw = (12<<7) | (30<<1) | 1 = 1536 | 60 | 1 = 1597
+    t_k_h, t_k_m, t_k_30 = 12, 30, 1
+    t_k_raw = (t_k_h << 7) | (t_k_m << 1) | t_k_30
+    payload = _pack_string([
+        (84, 4, 1),                # m = 1
+        (78, 2, 2),                # P1
+        (76, 12, t_k_raw),         # t_k
+        (64, 24, xdot_raw),
+        (40, 5, xddot_raw),
+        (35, 27, x_raw),
+    ])
+    out = decode_glonass_string1(payload)
+    assert out["string"] == 1
+    assert out["P1"] == 2
+    assert out["t_k_s"] == 12 * 3600 + 30 * 60 + 30
+    assert out["x_m"] == pytest.approx(-1234.0 * 1000.0)
+    assert out["x_dot_m_s"] == pytest.approx(0.5 * 1000.0)
+    assert out["x_dot_dot_m_s2"] == pytest.approx(3 * 2 ** -30 * 1000.0)
+
+
+def test_glonass_string2_round_trip():
+    y_raw = _sm_encode(5000 * (1 << 11), 27)
+    ydot_raw = _sm_encode(-int(0.25 * (1 << 20)), 24)
+    yddot_raw = _sm_encode(-2, 5)
+    payload = _pack_string([
+        (84, 4, 2),
+        (80, 3, 4),                # B_n
+        (77, 1, 1),                # P2
+        (76, 7, 48),               # t_b = 48 * 15 min = 12h
+        (64, 24, ydot_raw),
+        (40, 5, yddot_raw),
+        (35, 27, y_raw),
+    ])
+    out = decode_glonass_string2(payload)
+    assert out["string"] == 2
+    assert out["B_n"] == 4
+    assert out["P2"] == 1
+    assert out["t_b_s"] == 48 * 15 * 60
+    assert out["y_m"] == pytest.approx(5000.0 * 1000.0)
+    assert out["y_dot_m_s"] == pytest.approx(-0.25 * 1000.0)
+    assert out["y_dot_dot_m_s2"] == pytest.approx(-2 * 2 ** -30 * 1000.0)
+
+
+def test_glonass_string3_round_trip():
+    z_raw = _sm_encode(-7777 * (1 << 11), 27)
+    zdot_km_s_quanta = 100000
+    zdot_raw = _sm_encode(zdot_km_s_quanta, 24)
+    zddot_raw = _sm_encode(1, 5)
+    gamma_raw = _sm_encode(-3, 11)
+    payload = _pack_string([
+        (84, 4, 3),
+        (80, 1, 1),                # P3
+        (79, 11, gamma_raw),
+        (67, 2, 2),                # P (mode flag)
+        (65, 1, 0),                # l_n
+        (64, 24, zdot_raw),
+        (40, 5, zddot_raw),
+        (35, 27, z_raw),
+    ])
+    out = decode_glonass_string3(payload)
+    assert out["string"] == 3
+    assert out["P3"] == 1
+    assert out["P"] == 2
+    assert out["l_n"] == 0
+    assert out["gamma_n"] == pytest.approx(-3 * 2 ** -40)
+    assert out["z_m"] == pytest.approx(-7777.0 * 1000.0)
+    assert out["z_dot_m_s"] == pytest.approx(zdot_km_s_quanta * 2 ** -20 * 1000.0)
+    assert out["z_dot_dot_m_s2"] == pytest.approx(2 ** -30 * 1000.0)
+
+
+def test_glonass_dispatch_unknown_string_returns_raw():
+    payload = _pack_string([(84, 4, 7)])
+    out = decode_glonass_string(payload)
+    assert out["string"] == 7
+    assert isinstance(out["raw"], bytes)
+
+
+def test_glonass_wrong_string_number_raises():
+    p = _pack_string([(84, 4, 2)])
+    with pytest.raises(ValueError):
+        decode_glonass_string1(p)
