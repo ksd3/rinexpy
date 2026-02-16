@@ -323,4 +323,213 @@ def rtk_fix(
     }
 
 
-__all__ = ["double_difference_solve", "rtk_fix"]
+class SequentialRTK:
+    """Sequential (multi-epoch) RTK with integer-ambiguity carry-over.
+
+    Wraps :func:`rtk_fix` so that integer ambiguities resolved on one
+    epoch are re-used on the next while the per-SV lock counter holds.
+    Partial ambiguity resolution kicks in when the full ratio test
+    fails: the most-precise subset of float ambiguities is fixed, the
+    rest stay float.
+
+    Cycle slips are detected per-SV by comparing the inter-epoch phase
+    change against the inter-epoch pseudorange change (both scaled to
+    cycles). When |Δphase - Δpr/λ| exceeds ``slip_threshold_cycles`` the
+    SV's lock count is reset and its cached ambiguity dropped.
+
+    Parameters
+    ----------
+    base_position_ecef:
+        Known base receiver ECEF position (m).
+    wavelength:
+        Carrier wavelength in meters.
+    ratio_threshold:
+        Minimum LAMBDA ratio for the full-fix to be accepted (default
+        3.0). The same threshold is used for partial AR on the trimmed
+        subset.
+    slip_threshold_cycles:
+        Inter-epoch slip detection threshold in carrier cycles
+        (default 0.5).
+    sigma_pr, sigma_phase:
+        Observation 1-sigma weights forwarded to :func:`rtk_fix`.
+    min_lock_to_fix:
+        SVs with lock count below this still get a float estimate but
+        do not contribute to the LAMBDA fix. Default 2 (i.e. the first
+        epoch is always float-only for a given SV).
+    """
+
+    def __init__(
+        self,
+        base_position_ecef: tuple[float, float, float],
+        *,
+        wavelength: float,
+        ratio_threshold: float = 3.0,
+        slip_threshold_cycles: float = 0.5,
+        sigma_pr: float = 1.0,
+        sigma_phase: float = 0.005,
+        min_lock_to_fix: int = 2,
+    ) -> None:
+        self.base_position_ecef = tuple(float(x) for x in base_position_ecef)
+        self.wavelength = float(wavelength)
+        self.ratio_threshold = float(ratio_threshold)
+        self.slip_threshold_cycles = float(slip_threshold_cycles)
+        self.sigma_pr = float(sigma_pr)
+        self.sigma_phase = float(sigma_phase)
+        self.min_lock_to_fix = int(min_lock_to_fix)
+        # Per-SV state, keyed by user-supplied SV id (anything hashable).
+        self._integer_amb: dict = {}        # sv -> int single-difference ambiguity
+        self._lock: dict = {}               # sv -> int lock count
+        self._last_phase: dict = {}         # sv -> last phase (cycles)
+        self._last_pr: dict = {}            # sv -> last pseudorange (m)
+        self._last_epoch_baseline: tuple[float, float, float] | None = None
+
+    def reset(self) -> None:
+        """Drop all per-SV state (locks + cached ambiguities)."""
+        self._integer_amb.clear()
+        self._lock.clear()
+        self._last_phase.clear()
+        self._last_pr.clear()
+        self._last_epoch_baseline = None
+
+    def _detect_slips(
+        self,
+        sv_ids,
+        rover_phase: np.ndarray,
+        base_phase: np.ndarray,
+        rover_pr: np.ndarray,
+        base_pr: np.ndarray,
+    ) -> set:
+        """Return the set of SVs that show a cycle slip vs the last epoch."""
+        slipped = set()
+        # Use single-differenced (rover - base) phase/pr; receiver clock
+        # is the same on both observables, so the time-difference of
+        # rover_minus_base cancels the receiver-clock drift.
+        sd_phase = np.asarray(rover_phase) - np.asarray(base_phase)
+        sd_pr = np.asarray(rover_pr) - np.asarray(base_pr)
+        for i, sv in enumerate(sv_ids):
+            prev_p = self._last_phase.get(sv)
+            prev_r = self._last_pr.get(sv)
+            if prev_p is None or prev_r is None:
+                continue
+            d_phase = sd_phase[i] - prev_p
+            d_pr_cycles = (sd_pr[i] - prev_r) / self.wavelength
+            if abs(d_phase - d_pr_cycles) > self.slip_threshold_cycles:
+                slipped.add(sv)
+        return slipped
+
+    def update(
+        self,
+        sv_ids,
+        rover_pr: np.ndarray,
+        base_pr: np.ndarray,
+        rover_phase: np.ndarray,
+        base_phase: np.ndarray,
+        sv_positions_ecef: np.ndarray,
+        *,
+        initial_baseline: tuple[float, float, float] | None = None,
+    ) -> dict:
+        """Process one epoch.
+
+        Returns
+        -------
+        dict
+            ``{"baseline", "rover_position", "n_total", "n_fixed",
+            "fixed_accepted", "ratio", "carry_over_count",
+            "slipped_svs"}``. ``baseline`` is the rover-minus-base ECEF
+            vector (m); ``n_fixed`` counts SVs whose ambiguity was held
+            as an integer (whether carried over or freshly fixed).
+        """
+        sv_ids = list(sv_ids)
+        slipped = self._detect_slips(sv_ids, rover_phase, base_phase, rover_pr, base_pr)
+        for sv in slipped:
+            self._integer_amb.pop(sv, None)
+            self._lock[sv] = 0
+
+        if initial_baseline is None:
+            initial_baseline = self._last_epoch_baseline or (0.0, 0.0, 0.0)
+
+        sol = rtk_fix(
+            np.asarray(rover_pr, dtype=float),
+            np.asarray(base_pr, dtype=float),
+            np.asarray(rover_phase, dtype=float),
+            np.asarray(base_phase, dtype=float),
+            np.asarray(sv_positions_ecef, dtype=float),
+            self.base_position_ecef,
+            wavelength=self.wavelength,
+            sigma_pr=self.sigma_pr,
+            sigma_phase=self.sigma_phase,
+            ratio_threshold=self.ratio_threshold,
+            initial_baseline=initial_baseline,
+        )
+
+        carry_over_count = 0
+        n_fixed = 0
+        ref_idx = sol["reference_sv_index"]
+        other_idxs = [i for i in range(len(sv_ids)) if i != ref_idx]
+        ratio = sol["lambda"]["ratio"] if sol["lambda"] is not None else 0.0
+
+        if sol["fixed_accepted"]:
+            n_fixed = len(other_idxs)
+            int_amb = sol["fixed"]["ambiguities"]
+            # Cache per-SV single-difference ambiguities by reconstituting
+            # them from DD + reference SD. We don't know the absolute SD
+            # ambiguity for the reference, so we just store the DD value
+            # against the *other* SV (with the reference as anchor).
+            ref_sv = sv_ids[ref_idx]
+            for j, oi in enumerate(other_idxs):
+                self._integer_amb[(sv_ids[oi], ref_sv)] = int(int_amb[j])
+        else:
+            # Partial AR: try fixing only the most-precise subset.
+            cov_amb = sol["float"].get("ambiguity_covariance")
+            float_amb = sol["float"]["ambiguities"]
+            if cov_amb is not None and float_amb.size >= 2:
+                variances = np.diag(cov_amb)
+                # Try progressively larger subsets, starting from the
+                # most-precise ambiguity.
+                order = np.argsort(variances)
+                from .lambda_ar import lambda_resolve as _lam
+                for k in range(float_amb.size - 1, 1, -1):
+                    keep = np.sort(order[:k])
+                    sub = float_amb[keep]
+                    sub_cov = cov_amb[np.ix_(keep, keep)]
+                    cand = _lam(sub, sub_cov, ratio_threshold=self.ratio_threshold)
+                    if cand["accepted"]:
+                        n_fixed = k
+                        ratio = cand["ratio"]
+                        break
+
+        # Update phase/pr history for slip detection on the next epoch.
+        sd_phase = np.asarray(rover_phase) - np.asarray(base_phase)
+        sd_pr = np.asarray(rover_pr) - np.asarray(base_pr)
+        for i, sv in enumerate(sv_ids):
+            self._last_phase[sv] = float(sd_phase[i])
+            self._last_pr[sv] = float(sd_pr[i])
+            self._lock[sv] = self._lock.get(sv, 0) + 1
+        # If we accepted a fix, count the carry-over use as the SVs that
+        # already had a cached ambiguity from before this update.
+        for sv in sv_ids:
+            if (sv, sv_ids[ref_idx]) in self._integer_amb and sv != sv_ids[ref_idx]:
+                if self._lock.get(sv, 0) > 1:
+                    carry_over_count += 1
+
+        baseline = sol["fixed"]["baseline"] if sol["fixed_accepted"] else sol["float"]["baseline"]
+        rover_position = (
+            self.base_position_ecef[0] + baseline[0],
+            self.base_position_ecef[1] + baseline[1],
+            self.base_position_ecef[2] + baseline[2],
+        )
+        self._last_epoch_baseline = baseline
+
+        return {
+            "baseline": baseline,
+            "rover_position": rover_position,
+            "n_total": len(sv_ids),
+            "n_fixed": n_fixed,
+            "fixed_accepted": sol["fixed_accepted"],
+            "ratio": ratio,
+            "carry_over_count": carry_over_count,
+            "slipped_svs": slipped,
+        }
+
+
+__all__ = ["SequentialRTK", "double_difference_solve", "rtk_fix"]
