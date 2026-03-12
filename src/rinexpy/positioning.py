@@ -90,6 +90,10 @@ def spp_solve(
     initial_guess: tuple[float, float, float] = (0.0, 0.0, 0.0),
     max_iter: int = 10,
     tol: float = 1e-3,
+    raim: bool = False,
+    sigma_pr: float = 5.0,
+    p_fa: float = 1e-4,
+    max_exclusions: int = 2,
 ) -> dict:
     """Single-point positioning least-squares.
 
@@ -108,21 +112,38 @@ def spp_solve(
         Iteration cap. Raises ``RuntimeError`` if not converged in time.
     tol:
         Convergence tolerance on the position update norm, in meters.
+    raim:
+        Run chi-squared RAIM fault detection + exclusion on the SPP
+        residuals (delegates to :func:`spp_solve_raim`). Default False.
+    sigma_pr, p_fa, max_exclusions:
+        Forwarded to :func:`spp_solve_raim` when ``raim=True``.
 
     Returns
     -------
     dict
         ``{"position": (x, y, z) ECEF in m, "clock_bias": dt in s,
         "n_iter": int, "residuals": ndarray of size n_sv,
-        "lla": (lat, lon, alt)}``.
+        "lla": (lat, lon, alt)}``. When ``raim=True`` the dict gains
+        ``raim_test``, ``raim_threshold``, ``fault_detected``,
+        ``excluded_svs`` and ``raim_failed`` (see
+        :func:`spp_solve_raim`).
 
     Raises
     ------
     ValueError
-        If fewer than 4 satellites are supplied.
+        If fewer than 4 satellites are supplied (or fewer than 5 when
+        ``raim=True``).
     RuntimeError
         If the iteration does not converge within ``max_iter``.
     """
+    if raim:
+        return spp_solve_raim(
+            sv_ecef, pseudoranges,
+            initial_guess=initial_guess,
+            max_iter=max_iter, tol=tol,
+            sigma_pr=sigma_pr, p_fa=p_fa,
+            max_exclusions=max_exclusions,
+        )
     sv = np.ascontiguousarray(sv_ecef, dtype=float)
     pr = np.ascontiguousarray(pseudoranges, dtype=float)
     if sv.shape[0] < 4:

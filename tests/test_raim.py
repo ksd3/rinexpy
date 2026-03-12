@@ -79,6 +79,34 @@ def test_raim_rejects_too_few_sats():
         spp_solve_raim(sv, pr)
 
 
+def test_spp_solve_kwarg_raim_matches_dedicated_function():
+    """ROADMAP signature: spp_solve(..., raim=True) delegates to RAIM."""
+    from rinexpy.positioning import spp_solve
+
+    truth = np.array(lla_to_ecef(40, -3, 100))
+    pr = _synthetic_pseudoranges(truth, SV_GEOMETRY)
+    pr[2] += 50.0
+    via_kwarg = spp_solve(SV_GEOMETRY, pr, raim=True, sigma_pr=5.0, p_fa=1e-4)
+    via_func = spp_solve_raim(SV_GEOMETRY, pr, sigma_pr=5.0, p_fa=1e-4)
+    assert via_kwarg["fault_detected"] == via_func["fault_detected"]
+    assert via_kwarg["excluded_svs"] == via_func["excluded_svs"]
+    for i in range(3):
+        assert via_kwarg["position"][i] == approx(via_func["position"][i], abs=1e-9)
+
+
+def test_spp_solve_default_raim_false_unchanged():
+    """raim=False (default) keeps the legacy minimal return shape."""
+    from rinexpy.positioning import spp_solve
+
+    truth = np.array(lla_to_ecef(40, -3, 100))
+    pr = _synthetic_pseudoranges(truth, SV_GEOMETRY)
+    sol = spp_solve(SV_GEOMETRY, pr)
+    assert "raim_test" not in sol
+    assert "fault_detected" not in sol
+    for i in range(3):
+        assert sol["position"][i] == approx(truth[i], abs=1e-3)
+
+
 def test_norm_quantile_endpoints():
     """Acklam's approximation matches the standard normal table at canonical points."""
     assert _norm_quantile(0.5) == approx(0.0, abs=1e-9)
