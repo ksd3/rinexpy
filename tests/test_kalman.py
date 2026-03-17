@@ -206,3 +206,13 @@ def test_filter_returns_sane_clock_bias():
     # True clock is zero in our synthetic; filter should be within a
     # microsecond.
     assert abs(flt.clock_bias_s) < 1e-6
+
+
+def test_gnssfilter_alias_is_staticpppfilter():
+    """ROADMAP acceptance API: rinexpy.kalman.GNSSFilter is the named
+    EKF entry point."""
+    from rinexpy.kalman import GNSSFilter, StaticPPPFilter
+
+    assert GNSSFilter is StaticPPPFilter
+    flt = GNSSFilter(n_sv=4, initial_position=(0.0, 0.0, 0.0))
+    assert isinstance(flt, StaticPPPFilter)

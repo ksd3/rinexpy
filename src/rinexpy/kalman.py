@@ -452,4 +452,12 @@ class StaticPPPFilter:
         self.P = I_KH @ self.P @ I_KH.T + np.outer(k, k) * r
 
 
-__all__ = ["StaticPPPFilter"]
+#: The named EKF entry point per the roadmap acceptance API.
+#: ``GNSSFilter`` is an alias for :class:`StaticPPPFilter` - the same
+#: state ``[px, py, pz, c*dt, N_1, ..., N_n_sv]`` handles both the
+#: static (``sigma_position_rate_m = 0``, the default) and kinematic
+#: (``sigma_position_rate_m > 0``) cases.
+GNSSFilter = StaticPPPFilter
+
+
+__all__ = ["GNSSFilter", "StaticPPPFilter"]
