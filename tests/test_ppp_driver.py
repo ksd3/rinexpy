@@ -189,3 +189,156 @@ def test_ppp_solve_picks_first_available_quadruple():
     obs2 = obs.rename({"C1C": "C1W", "L1C": "L1W"})
     out = ppp_solve(obs2, sp3, clk, initial_position_ecef=tuple(truth))
     assert out["obs_codes"] == ("C1W", "C2W", "L1W", "L2W")
+
+
+# ---------------------------------------------------------------------------
+# Wired corrections: ANTEX, VMF1+GPT2w, DCB, phase wind-up
+# ---------------------------------------------------------------------------
+
+
+def _elevation_dependent_antenna(zen_axis, slope_mm_per_deg=0.5):
+    """Build a NOAZI-only ANTEX entry with PCV increasing linearly in
+    zenith angle - elevation-dependent biases survive the receiver-clock
+    sink, unlike constant biases which it absorbs."""
+    n = zen_axis.size
+    noazi = slope_mm_per_deg * zen_axis
+    return {
+        "type": "TEST",
+        "serial": "",
+        "valid_from": None,
+        "valid_until": None,
+        "frequencies": {
+            "G01": {"north": 0.0, "east": 0.0, "up": 0.0,
+                    "noazi": noazi, "zenith_deg": zen_axis},
+            "G02": {"north": 0.0, "east": 0.0, "up": 0.0,
+                    "noazi": noazi, "zenith_deg": zen_axis},
+        },
+        "azimuth_deg": np.array([0.0, 360.0]),
+        "zenith_deg": zen_axis,
+    }
+
+
+def test_ppp_solve_antenna_pcv_shifts_position_consistently():
+    """An elevation-dependent PCV (slope vs zenith) is NOT absorbed by
+    the receiver clock and shows up as a position shift."""
+    obs, sp3, clk, truth = _synth_session()
+    zen_axis = np.linspace(0.0, 90.0, 19)
+    ant = _elevation_dependent_antenna(zen_axis, slope_mm_per_deg=2.0)
+    out_off = ppp_solve(
+        obs, sp3, clk, initial_position_ecef=tuple(truth),
+        elevation_mask_deg=5.0,
+    )
+    out_on = ppp_solve(
+        obs, sp3, clk, initial_position_ecef=tuple(truth),
+        elevation_mask_deg=5.0, antenna=ant,
+    )
+    diff = np.linalg.norm(
+        np.array(out_on["position"]) - np.array(out_off["position"])
+    )
+    assert diff > 1e-3, "antenna PCV should shift the solution"
+
+
+def test_ppp_solve_dcb_correction_shifts_pseudoranges():
+    """A constant +1 ns satellite OSB on all SVs is absorbed into the
+    receiver clock state, leaving position essentially unchanged."""
+    from datetime import timezone
+
+    obs, sp3, clk, truth = _synth_session()
+    # Synthetic OSB record: 1 ns OSB on each SV's C1C and C2W.
+    # dcb.get_bias requires tz-aware start/end.
+    start = datetime(2024, 1, 1, tzinfo=timezone.utc)
+    end = datetime(2024, 12, 31, tzinfo=timezone.utc)
+    dcb_records = []
+    for i in range(8):
+        sv = f"G{i + 1:02d}"
+        for obs_code in ("C1C", "C2W"):
+            dcb_records.append({
+                "prn": sv, "station": "",
+                "obs1": obs_code, "obs2": "",
+                "start": start, "end": end,
+                "value": 1.0, "unit": "ns",
+            })
+    out_on = ppp_solve(
+        obs, sp3, clk, initial_position_ecef=tuple(truth),
+        elevation_mask_deg=5.0, dcb_records=dcb_records,
+    )
+    out_off = ppp_solve(
+        obs, sp3, clk, initial_position_ecef=tuple(truth),
+        elevation_mask_deg=5.0,
+    )
+    pos_diff = np.linalg.norm(
+        np.array(out_on["position"]) - np.array(out_off["position"])
+    )
+    # Receiver clock should differ by ~1 ns of light-time (~0.3 m).
+    clk_diff_m = _C * abs(out_on["clock_bias_s"] - out_off["clock_bias_s"])
+    assert pos_diff < 0.5
+    assert clk_diff_m > 0.05
+
+
+def _build_gpt2w_grid():
+    """Build a 2x2-cell GPT2w grid in the layout that rinexpy.gpt2w
+    expects: ``data`` is an ndarray of shape (n_lat, n_lon, 42) where
+    each cell has mean + 4 seasonal-harmonic coefficients per quantity.
+
+    Slots:
+      0    : undulation (m)
+      1    : reference altitude (m)
+      2-6  : pressure (P_mean, a1, b1, a2, b2)
+      7-11 : temperature (K)
+      12-16: q (specific humidity)
+      17-21: dT (lapse rate)
+      22-26: Tm (mean temp)
+      27-31: lambda (water-vapour decrease)
+      32-36: a_h (VMF1 hydrostatic coefficient)
+      37-41: a_w (VMF1 wet coefficient)
+    """
+    n_lat, n_lon = 2, 2
+    cell = np.zeros(42)
+    cell[0] = 0.0       # undulation
+    cell[1] = 0.0       # reference altitude
+    cell[2] = 1013.0    # P_mean (hPa)
+    cell[7] = 288.0     # T_mean (K)
+    cell[12] = 0.005    # q_mean
+    cell[17] = 6.5e-3   # dT (K/m)
+    cell[22] = 273.0    # Tm
+    cell[27] = 3.0      # lambda
+    cell[32] = 0.0012   # a_h
+    cell[37] = 0.0006   # a_w
+    data = np.tile(cell, (n_lat, n_lon, 1))
+    return {
+        "lat": np.array([40.0, 41.0]),
+        "lon": np.array([356.0, 358.0]),
+        "resolution_deg": 1.0,
+        "data": data,
+    }
+
+
+def test_ppp_solve_vmf1_with_gpt2w_grid_runs():
+    """Smoke test: ppp_solve(gpt2w_grid=...) returns a sane result on
+    synthetic data with VMF1 + GPT2w replacing Saastamoinen."""
+    obs, sp3, clk, truth = _synth_session(n_epochs=30)
+    grid = _build_gpt2w_grid()
+    out = ppp_solve(
+        obs, sp3, clk, initial_position_ecef=tuple(truth),
+        elevation_mask_deg=5.0, gpt2w_grid=grid,
+    )
+    err = np.linalg.norm(np.array(out["position"]) - truth)
+    # The synthetic session injected Saastamoinen tropo; VMF1+GPT2w with
+    # standard-atmosphere mean values is close-but-not-identical, so
+    # expect a few-metre residual. The wiring is what we're testing.
+    assert err < 5.0
+    assert out["n_epochs"] == 30
+
+
+def test_ppp_solve_wind_up_does_not_break_solution():
+    """apply_wind_up=True should run cleanly and produce a comparable
+    solution on synthetic data (which has no wind-up signal)."""
+    obs, sp3, clk, truth = _synth_session(n_epochs=60)
+    out = ppp_solve(
+        obs, sp3, clk, initial_position_ecef=tuple(truth),
+        elevation_mask_deg=5.0, apply_wind_up=True,
+    )
+    err = np.linalg.norm(np.array(out["position"]) - truth)
+    # Wind-up on synthetic data is sub-cycle/epoch - shouldn't push the
+    # filter off its convergence.
+    assert err < 1.0

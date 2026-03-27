@@ -40,8 +40,11 @@ from typing import Any
 import numpy as np
 import xarray as xr
 
+from .antex import apply_antex_pcv
 from .clk import interpolate_clk
-from .geodesy import ecef_to_lla, saastamoinen
+from .dcb import get_bias
+from .geodesy import ecef_to_lla, phase_wind_up_correction, saastamoinen, vmf1
+from .gpt2w import gpt2w
 from .interp import interpolate_sp3
 from .kalman import StaticPPPFilter
 from .multifreq import F1, F2, LAMBDA_L1, LAMBDA_L2
@@ -51,6 +54,11 @@ log = logging.getLogger(__name__)
 _C = 299_792_458.0
 _ALPHA_IF = F1 ** 2 / (F1 ** 2 - F2 ** 2)
 _BETA_IF = F2 ** 2 / (F1 ** 2 - F2 ** 2)
+#: Iono-free L1/L2 carrier wavelength in meters. The IF combination
+#: ``alpha * L1 - beta * L2`` carries an effective wavelength of
+#: ``c / (alpha * f1 - beta * f2)``, used to convert cycles of wind-up
+#: into a phase-observable correction in meters.
+_LAMBDA_IF_M = _C / (_ALPHA_IF * F1 - _BETA_IF * F2)
 
 #: Priority list of (code-L1, code-L2, phase-L1, phase-L2) GPS RINEX 3
 #: observation codes. Tried in order; first all-present quadruple wins.
@@ -93,6 +101,11 @@ def ppp_solve(
     elevation_mask_deg: float = 7.0,
     max_epochs: int | None = None,
     apply_tropo: bool = True,
+    antenna: dict[str, Any] | None = None,
+    gpt2w_grid: dict[str, Any] | None = None,
+    dcb_records: list[dict[str, Any]] | None = None,
+    station_id: str = "",
+    apply_wind_up: bool = False,
 ) -> dict[str, Any]:
     """Static-receiver PPP driver.
 
@@ -126,6 +139,28 @@ def ppp_solve(
     apply_tropo:
         Whether to apply the Saastamoinen tropospheric slant correction.
         Default True.
+    antenna:
+        Optional ANTEX antenna entry (e.g. from
+        :func:`rinexpy.antex.find_antenna`). When supplied, per-SV PCV
+        corrections are subtracted from L1 / L2 code and phase before
+        the iono-free combination.
+    gpt2w_grid:
+        Optional GPT2w grid (from :func:`rinexpy.load_gpt2w_grid`). When
+        supplied, the tropospheric slant delay uses VMF1 mapping over a
+        GPT2w-derived (ZHD, ZWD) split instead of plain Saastamoinen.
+    dcb_records:
+        Optional list of SINEX bias records (from
+        :func:`rinexpy.dcb.read_bsx`). When supplied, per-SV satellite
+        OSB and (if ``station_id`` is non-empty) receiver OSB are added
+        to L1 / L2 pseudoranges before the iono-free combination.
+    station_id:
+        4-character station code used for receiver-DCB lookup. Empty
+        means satellite-only DCB.
+    apply_wind_up:
+        Track per-SV carrier-phase wind-up across epochs (Wu et al.
+        1993) and subtract from the iono-free phase. Default False
+        because synthetic data typically lacks wind-up; turn on for
+        real data.
 
     Returns
     -------
@@ -184,6 +219,7 @@ def ppp_solve(
 
     trace: list[dict[str, Any]] = []
     last_epoch: datetime | None = None
+    wind_up_cycles: dict[int, float] = {}
     for k, t64 in enumerate(times):
         # Skip epochs outside SP3 / CLK coverage.
         epoch = _as_datetime(t64)
@@ -205,32 +241,98 @@ def ppp_solve(
                 sv_ecef[j] = sv_pos_full[sp3_index[sv]]
                 sat_clock_s[j] = interpolate_clk(clk, sv, epoch)
 
-        # Iono-free code (m) and phase (m).
-        pr1 = c1[k]
-        pr2 = c2[k]
-        ph1_m = l1[k] * LAMBDA_L1
-        ph2_m = l2[k] * LAMBDA_L2
-        pr_if = _iono_free_code(pr1, pr2)
-        ph_if = _iono_free_phase(ph1_m, ph2_m)
+        # Per-band raw observations (m).
+        pr1 = c1[k].astype(float).copy()
+        pr2 = c2[k].astype(float).copy()
+        ph1_m = (l1[k] * LAMBDA_L1).astype(float).copy()
+        ph2_m = (l2[k] * LAMBDA_L2).astype(float).copy()
 
-        # Elevation mask + finite checks.
+        # Geometry at the current iterate.
         rx_guess = np.array(flt.position)
-        diff = sv_ecef - rx_guess
-        rho = np.linalg.norm(diff, axis=1)
-        rho[rho == 0] = np.nan
-        # Elevation from the rover at the current iterate.
         try:
             lat, lon, alt = ecef_to_lla(*flt.position)
         except (ValueError, ZeroDivisionError):
             lat = lon = alt = 0.0
         elev_deg = _elevation_deg(rx_guess, sv_ecef)
+        azi_deg = _azimuth_deg(rx_guess, sv_ecef)
 
-        tropo_m = np.zeros(n_sv)
-        if apply_tropo:
+        # ANTEX PCV: subtract from each band's code and phase.
+        if antenna is not None:
             for j in range(n_sv):
                 if not np.isfinite(elev_deg[j]) or elev_deg[j] <= 0:
                     continue
-                tropo_m[j] = saastamoinen(float(elev_deg[j]), alt)
+                az = float(azi_deg[j]) if np.isfinite(azi_deg[j]) else None
+                pcv1 = apply_antex_pcv(antenna, "G01", float(elev_deg[j]), az_deg=az)
+                pcv2 = apply_antex_pcv(antenna, "G02", float(elev_deg[j]), az_deg=az)
+                pr1[j] -= pcv1
+                pr2[j] -= pcv2
+                ph1_m[j] -= pcv1
+                ph2_m[j] -= pcv2
+
+        # DCB: add satellite (and optional receiver) OSB to each band.
+        if dcb_records is not None:
+            for j, sv in enumerate(gps_svs):
+                b_sv1 = get_bias(dcb_records, prn=sv, obs1=code1_name, epoch=epoch) or 0.0
+                b_sv2 = get_bias(dcb_records, prn=sv, obs1=code2_name, epoch=epoch) or 0.0
+                pr1[j] += b_sv1
+                pr2[j] += b_sv2
+                if station_id:
+                    b_rx1 = get_bias(dcb_records, station=station_id,
+                                     obs1=code1_name, epoch=epoch) or 0.0
+                    b_rx2 = get_bias(dcb_records, station=station_id,
+                                     obs1=code2_name, epoch=epoch) or 0.0
+                    pr1[j] += b_rx1
+                    pr2[j] += b_rx2
+
+        # Phase wind-up: rotates only the phase observable.
+        if apply_wind_up:
+            sun_unit = _sun_ecef_unit(epoch)
+            rx_x, rx_y = _rx_antenna_axes(rx_guess)
+            for j in range(n_sv):
+                if not np.isfinite(elev_deg[j]) or elev_deg[j] <= 0:
+                    continue
+                sat_x, sat_y = _nominal_sat_body_axes(sv_ecef[j], sun_unit)
+                los = sv_ecef[j] - rx_guess
+                wind_up_cycles[j] = phase_wind_up_correction(
+                    sat_x, sat_y, rx_x, rx_y, los,
+                    previous_cycles=wind_up_cycles.get(j, 0.0),
+                )
+            # Wind-up affects only the phase observation; apply to each
+            # band, then the iono-free combination carries the correction.
+            for j in range(n_sv):
+                wu_m_l1 = wind_up_cycles.get(j, 0.0) * LAMBDA_L1
+                wu_m_l2 = wind_up_cycles.get(j, 0.0) * LAMBDA_L2
+                ph1_m[j] -= wu_m_l1
+                ph2_m[j] -= wu_m_l2
+
+        # Iono-free code (m) and phase (m).
+        pr_if = _iono_free_code(pr1, pr2)
+        ph_if = _iono_free_phase(ph1_m, ph2_m)
+
+        # Tropospheric slant delay.
+        tropo_m = np.zeros(n_sv)
+        if apply_tropo:
+            if gpt2w_grid is not None:
+                w = gpt2w(gpt2w_grid, lat, lon, epoch, altitude_m=alt)
+                # ZHD: Saastamoinen-Davis hydrostatic delay at zenith.
+                cos_2lat = np.cos(2 * np.deg2rad(lat))
+                zhd = 0.0022768 * w["pressure_hpa"] / (
+                    1.0 - 0.00266 * cos_2lat - 0.00028e-3 * alt
+                )
+                # ZWD: Saastamoinen wet at zenith, using GPT2w's e_hpa.
+                zwd = 0.002277 * (1255.0 / w["temperature_k"] + 0.05) * w["e_hpa"]
+                doy = epoch.timetuple().tm_yday
+                for j in range(n_sv):
+                    if not np.isfinite(elev_deg[j]) or elev_deg[j] <= 0:
+                        continue
+                    m_h, m_w = vmf1(w["a_h"], w["a_w"], float(elev_deg[j]),
+                                    lat, alt, doy)
+                    tropo_m[j] = m_h * zhd + m_w * zwd
+            else:
+                for j in range(n_sv):
+                    if not np.isfinite(elev_deg[j]) or elev_deg[j] <= 0:
+                        continue
+                    tropo_m[j] = saastamoinen(float(elev_deg[j]), alt)
 
         masked = ~np.isfinite(elev_deg) | (elev_deg < elevation_mask_deg)
         pr_if[masked] = np.nan
@@ -276,26 +378,104 @@ def _as_datetime(t) -> datetime:
     return np.datetime64(t, "us").astype(object)
 
 
-def _elevation_deg(rx_ecef: np.ndarray, sv_ecef: np.ndarray) -> np.ndarray:
-    """Per-SV elevation in degrees from rx_ecef, vectorised over (n_sv, 3)."""
+def _sun_ecef_unit(epoch: datetime) -> np.ndarray:
+    """Approximate ECEF unit vector pointing at the sun. Degree-level
+    accuracy is sufficient for wind-up (the underlying signal varies
+    slowly with sun geometry).
+
+    Uses the standard low-precision solar coordinates from the
+    Astronomical Almanac (Meeus 1998), then rotates ECI->ECEF by GMST.
+    """
+    j2000 = datetime(2000, 1, 1, 12, 0, 0)
+    d = (epoch - j2000).total_seconds() / 86400.0
+    L = (280.46 + 0.9856474 * d) % 360.0
+    g = (357.528 + 0.9856003 * d) % 360.0
+    lam = L + 1.915 * np.sin(np.deg2rad(g)) + 0.020 * np.sin(np.deg2rad(2 * g))
+    eps = 23.439 - 0.0000004 * d
+    sin_lam = np.sin(np.deg2rad(lam))
+    cos_lam = np.cos(np.deg2rad(lam))
+    sin_eps = np.sin(np.deg2rad(eps))
+    cos_eps = np.cos(np.deg2rad(eps))
+    eci = np.array([cos_lam, cos_eps * sin_lam, sin_eps * sin_lam])
+    gmst_h = (18.697374558 + 24.06570982441908 * d) % 24.0
+    gmst = gmst_h * np.pi / 12.0
+    cg, sg = np.cos(gmst), np.sin(gmst)
+    return np.array([
+        cg * eci[0] + sg * eci[1],
+        -sg * eci[0] + cg * eci[1],
+        eci[2],
+    ])
+
+
+def _nominal_sat_body_axes(sat_pos: np.ndarray, sun_unit: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Return (e_x, e_y) of the nominal-yaw satellite body frame in ECEF.
+
+    Body z points to Earth, y is along the solar-panel axis (perpendicular
+    to both Earth-direction and sun-direction), x completes the
+    right-handed frame.
+    """
+    e_z = -sat_pos / np.linalg.norm(sat_pos)
+    cross = np.cross(e_z, sun_unit)
+    norm = np.linalg.norm(cross)
+    if norm == 0.0:
+        # Sun is exactly along body z; fall back to an arbitrary tangent.
+        ref = np.array([0.0, 0.0, 1.0])
+        cross = np.cross(e_z, ref)
+        norm = np.linalg.norm(cross)
+    e_y = cross / norm
+    e_x = np.cross(e_y, e_z)
+    return e_x, e_y
+
+
+def _rx_antenna_axes(rx_ecef: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Receiver antenna axes (east, north) in ECEF for a level-mounted
+    geodetic antenna. East = x_hat, North = y_hat per Wu et al."""
     try:
         lat, lon, _ = ecef_to_lla(*rx_ecef)
     except (ValueError, ZeroDivisionError):
-        return np.full(sv_ecef.shape[0], np.nan)
-    lat_r = np.deg2rad(lat)
-    lon_r = np.deg2rad(lon)
-    sl, cl = np.sin(lat_r), np.cos(lat_r)
-    sg, cg = np.sin(lon_r), np.cos(lon_r)
-    R = np.array([
+        return np.array([1.0, 0.0, 0.0]), np.array([0.0, 1.0, 0.0])
+    lr, gr = np.deg2rad(lat), np.deg2rad(lon)
+    sl, cl = np.sin(lr), np.cos(lr)
+    sg, cg = np.sin(gr), np.cos(gr)
+    east = np.array([-sg, cg, 0.0])
+    north = np.array([-sl * cg, -sl * sg, cl])
+    return east, north
+
+
+def _ecef_to_enu_rotation(rx_ecef: np.ndarray) -> np.ndarray | None:
+    try:
+        lat, lon, _ = ecef_to_lla(*rx_ecef)
+    except (ValueError, ZeroDivisionError):
+        return None
+    lr, gr = np.deg2rad(lat), np.deg2rad(lon)
+    sl, cl = np.sin(lr), np.cos(lr)
+    sg, cg = np.sin(gr), np.cos(gr)
+    return np.array([
         [-sg, cg, 0.0],
         [-sl * cg, -sl * sg, cl],
         [cl * cg, cl * sg, sl],
     ])
+
+
+def _elevation_deg(rx_ecef: np.ndarray, sv_ecef: np.ndarray) -> np.ndarray:
+    """Per-SV elevation in degrees from rx_ecef, vectorised over (n_sv, 3)."""
+    R = _ecef_to_enu_rotation(rx_ecef)
+    if R is None:
+        return np.full(sv_ecef.shape[0], np.nan)
     enu = (sv_ecef - rx_ecef) @ R.T
     horiz = np.linalg.norm(enu[:, :2], axis=1)
     elev = np.degrees(np.arctan2(enu[:, 2], horiz))
     elev[np.isnan(elev)] = -1.0
     return elev
+
+
+def _azimuth_deg(rx_ecef: np.ndarray, sv_ecef: np.ndarray) -> np.ndarray:
+    """Per-SV azimuth in degrees (0 deg = North, clockwise)."""
+    R = _ecef_to_enu_rotation(rx_ecef)
+    if R is None:
+        return np.full(sv_ecef.shape[0], np.nan)
+    enu = (sv_ecef - rx_ecef) @ R.T
+    return np.degrees(np.arctan2(enu[:, 0], enu[:, 1])) % 360.0
 
 
 __all__ = ["ppp_solve"]
