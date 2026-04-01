@@ -92,7 +92,7 @@ def _iono_free_phase(phi1_m: np.ndarray, phi2_m: np.ndarray) -> np.ndarray:
 def ppp_solve(
     obs: xr.Dataset,
     sp3: xr.Dataset,
-    clk: xr.Dataset,
+    clk: xr.Dataset | None = None,
     *,
     initial_position_ecef: tuple[float, float, float] | None = None,
     obs_codes: tuple[str, str, str, str] | None = None,
@@ -106,6 +106,7 @@ def ppp_solve(
     dcb_records: list[dict[str, Any]] | None = None,
     station_id: str = "",
     apply_wind_up: bool = False,
+    ssr: Any | None = None,
 ) -> dict[str, Any]:
     """Static-receiver PPP driver.
 
@@ -119,7 +120,9 @@ def ppp_solve(
     sp3:
         SP3 xarray Dataset spanning the obs epochs.
     clk:
-        CLK xarray Dataset spanning the obs epochs.
+        CLK xarray Dataset spanning the obs epochs. May be ``None`` if
+        an SSR correction set is supplied that includes clock messages -
+        in that case the SSR clock takes the place of CLK.
     initial_position_ecef:
         Receiver position prior (m). Defaults to the obs header's
         ``position`` attr, falling back to Earth's center.
@@ -161,6 +164,13 @@ def ppp_solve(
         1993) and subtract from the iono-free phase. Default False
         because synthetic data typically lacks wind-up; turn on for
         real data.
+    ssr:
+        Optional :class:`rinexpy.ssr.SSRCorrections` (or any object with
+        the same ``orbit_correction_ecef``, ``clock_correction_s``,
+        ``code_bias_m`` methods). When supplied, per-epoch SSR orbit
+        corrections shift the SP3 satellite positions, SSR clocks
+        replace CLK lookups for SVs with an SSR clock entry, and SSR
+        code biases are subtracted from each band's pseudorange.
 
     Returns
     -------
@@ -234,12 +244,38 @@ def ppp_solve(
         sp3_sv_labels = [str(s) for s in sp3_at.sv.values]
         sp3_index = {s: i for i, s in enumerate(sp3_sv_labels)}
 
+        # SV velocities (only computed if SSR orbit corrections need
+        # the radial-along-cross frame).
+        sv_velocity_full: np.ndarray | None = None
+        if ssr is not None:
+            from datetime import timedelta as _td
+            sp3_dt = interpolate_sp3(sp3, epoch + _td(seconds=1))
+            sv_velocity_full = sp3_dt.position.values - sv_pos_full
+
         sv_ecef = np.full((n_sv, 3), np.nan)
         sat_clock_s = np.full(n_sv, np.nan)
+        epoch_sow = _epoch_seconds_of_week(epoch)
         for j, sv in enumerate(gps_svs):
             if sv in sp3_index:
-                sv_ecef[j] = sv_pos_full[sp3_index[sv]]
-                sat_clock_s[j] = interpolate_clk(clk, sv, epoch)
+                pos = sv_pos_full[sp3_index[sv]]
+                if ssr is not None and sv_velocity_full is not None:
+                    vel = sv_velocity_full[sp3_index[sv]]
+                    delta = ssr.orbit_correction_ecef(sv, pos, vel, epoch_sow)
+                    pos = pos - delta
+                sv_ecef[j] = pos
+                # Clock: SSR overrides CLK when present; otherwise CLK
+                # if available; else fall back to 0 (no correction).
+                if ssr is not None and ssr.has_clock(sv):
+                    base_clk = (
+                        interpolate_clk(clk, sv, epoch) if clk is not None else 0.0
+                    )
+                    if not np.isfinite(base_clk):
+                        base_clk = 0.0
+                    sat_clock_s[j] = base_clk - ssr.clock_correction_s(sv, epoch_sow)
+                elif clk is not None:
+                    sat_clock_s[j] = interpolate_clk(clk, sv, epoch)
+                else:
+                    sat_clock_s[j] = 0.0
 
         # Per-band raw observations (m).
         pr1 = c1[k].astype(float).copy()
@@ -268,6 +304,14 @@ def ppp_solve(
                 pr2[j] -= pcv2
                 ph1_m[j] -= pcv1
                 ph2_m[j] -= pcv2
+
+        # SSR code bias: subtracts a per-(sv, obs_code) bias from each
+        # band's pseudorange (RTCM 1059-style; sign convention is
+        # pr_precise = pr_raw + bias, so subtracting cancels it back).
+        if ssr is not None:
+            for j, sv in enumerate(gps_svs):
+                pr1[j] -= ssr.code_bias_m(sv, code1_name)
+                pr2[j] -= ssr.code_bias_m(sv, code2_name)
 
         # DCB: add satellite (and optional receiver) OSB to each band.
         if dcb_records is not None:
@@ -376,6 +420,20 @@ def _as_datetime(t) -> datetime:
     if isinstance(t, datetime):
         return t
     return np.datetime64(t, "us").astype(object)
+
+
+def _epoch_seconds_of_week(epoch: datetime) -> float:
+    """GPS seconds-of-week for ``epoch``. SSR messages tag time as a
+    second-of-week count (DF385), so corrections need the same domain
+    for the polynomial-extrapolation dt."""
+    # Python: Monday=0; GPS week starts Sunday 00:00 UTC. Shift to make
+    # Sunday=0.
+    weekday = (epoch.weekday() + 1) % 7
+    return (weekday * 86400.0
+            + epoch.hour * 3600.0
+            + epoch.minute * 60.0
+            + epoch.second
+            + epoch.microsecond * 1e-6)
 
 
 def _sun_ecef_unit(epoch: datetime) -> np.ndarray:
