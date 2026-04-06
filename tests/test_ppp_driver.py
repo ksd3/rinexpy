@@ -342,3 +342,30 @@ def test_ppp_solve_wind_up_does_not_break_solution():
     # Wind-up on synthetic data is sub-cycle/epoch - shouldn't push the
     # filter off its convergence.
     assert err < 1.0
+
+
+def test_ppp_solve_24h_static_session_meets_2cm_budget():
+    """ROADMAP acceptance: a 24h static dataset converges to < 2 cm.
+
+    Synthetic test - generates a 24h session (2880 epochs at 30 s)
+    against a known station, drives it through ppp_solve, and asserts
+    the final position is within 2 cm. The synthetic data uses
+    sub-cm phase noise and the SVs move at realistic velocities so the
+    filter has the geometric diversity it needs to decouple position
+    from clock.
+    """
+    obs, sp3, clk, truth = _synth_session(
+        n_epochs=2880,       # 24 h @ 30 s
+        dt_s=30.0,
+        n_sv=10,
+        sigma_phase_m=0.003,
+        sigma_code_m=0.30,
+    )
+    out = ppp_solve(
+        obs, sp3, clk,
+        initial_position_ecef=tuple(truth + np.array([5.0, 5.0, 5.0])),
+        elevation_mask_deg=5.0,
+    )
+    err = np.linalg.norm(np.array(out["position"]) - truth)
+    assert err < 0.02, f"24h PPP recovered {err * 100:.2f} cm (expected < 2 cm)"
+    assert out["n_epochs"] == 2880
