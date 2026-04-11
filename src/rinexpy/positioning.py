@@ -94,6 +94,13 @@ def spp_solve(
     sigma_pr: float = 5.0,
     p_fa: float = 1e-4,
     max_exclusions: int = 2,
+    sv_labels: list[str] | None = None,
+    dcb_records: list[dict] | None = None,
+    dcb_obs_code: str = "",
+    dcb_station: str = "",
+    dcb_epoch: datetime | None = None,
+    tgd_map: dict[str, float] | None = None,
+    tgd_gamma: float = 1.0,
 ) -> dict:
     """Single-point positioning least-squares.
 
@@ -117,6 +124,35 @@ def spp_solve(
         residuals (delegates to :func:`spp_solve_raim`). Default False.
     sigma_pr, p_fa, max_exclusions:
         Forwarded to :func:`spp_solve_raim` when ``raim=True``.
+    sv_labels:
+        Optional ``(n_sv,)`` list of RINEX-3 satellite identifiers
+        (e.g. ``["G01", "G05", ...]``) parallel to ``sv_ecef`` /
+        ``pseudoranges``. Required when applying SINEX DCB or
+        broadcast TGD corrections.
+    dcb_records:
+        Optional SINEX bias records (from :func:`rinexpy.dcb.read_bsx`)
+        to apply before solving. Adds the satellite OSB for each SV
+        (and the receiver OSB when ``dcb_station`` is supplied).
+        Requires ``sv_labels`` and ``dcb_obs_code``.
+    dcb_obs_code:
+        RINEX-3 observation code that ``pseudoranges`` were measured
+        on (e.g. ``"C1C"``, ``"C1W"``). Required when ``dcb_records``
+        is supplied.
+    dcb_station:
+        Optional 4-character station code for receiver-side DCB
+        lookups.
+    dcb_epoch:
+        Optional epoch for the SINEX validity-window check. If
+        omitted, the first record matching the SV / obs-code wins
+        regardless of time.
+    tgd_map:
+        Optional ``{sv_label: tgd_seconds}`` from
+        :func:`tgd_from_nav` to apply the broadcast group-delay
+        correction before solving. Requires ``sv_labels``.
+    tgd_gamma:
+        Frequency scaling for the TGD application. ``1.0`` on L1,
+        ``(f1/f2)**2`` on L2, ``0.0`` for the iono-free combination.
+        Default ``1.0``.
 
     Returns
     -------
@@ -136,6 +172,33 @@ def spp_solve(
     RuntimeError
         If the iteration does not converge within ``max_iter``.
     """
+    # Pre-correct pseudoranges by DCB / TGD if either was supplied.
+    if dcb_records is not None or tgd_map is not None:
+        pseudoranges = np.asarray(pseudoranges, dtype=float).copy()
+        if dcb_records is not None:
+            if not sv_labels or not dcb_obs_code:
+                raise ValueError(
+                    "dcb_records requires sv_labels and dcb_obs_code"
+                )
+            from .dcb import get_bias
+            for i, sv_id in enumerate(sv_labels):
+                b_sv = get_bias(
+                    dcb_records, prn=sv_id, obs1=dcb_obs_code, epoch=dcb_epoch,
+                ) or 0.0
+                b_rx = 0.0
+                if dcb_station:
+                    b_rx = get_bias(
+                        dcb_records, station=dcb_station,
+                        obs1=dcb_obs_code, epoch=dcb_epoch,
+                    ) or 0.0
+                pseudoranges[i] += b_sv + b_rx
+        if tgd_map is not None:
+            if not sv_labels:
+                raise ValueError("tgd_map requires sv_labels")
+            pseudoranges = apply_tgd_correction(
+                pseudoranges, sv_labels, tgd_map, gamma=tgd_gamma,
+            )
+
     if raim:
         return spp_solve_raim(
             sv_ecef, pseudoranges,

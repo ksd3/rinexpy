@@ -116,3 +116,78 @@ def test_get_bias_dsb_lookup(bsx_file: Path):
     records = read_bsx(bsx_file)
     b = get_bias(records, prn="G05", obs1="C1W", obs2="C2W")
     assert b == pytest.approx(-3.5556 * C_M_PER_S * 1e-9)
+
+
+def test_spp_solve_applies_dcb_records(bsx_file: Path):
+    """spp_solve(dcb_records=..., dcb_obs_code=..., sv_labels=...)
+    should produce a clock-bias offset equal to the common DCB bias
+    when every SV has the same OSB."""
+    import numpy as np
+    from rinexpy.geodesy import lla_to_ecef
+    from rinexpy.positioning import spp_solve
+
+    truth = np.array(lla_to_ecef(40.0, -3.0, 100.0))
+    sv = np.array([
+        truth + np.array([2.0e7, 1.0e7, 1.5e7]),
+        truth + np.array([-2.0e7, 1.0e7, 1.5e7]),
+        truth + np.array([0.0, 2.0e7, 2.0e7]),
+        truth + np.array([0.0, -2.0e7, 1.0e7]),
+        truth + np.array([1.5e7, 0.0, 1.7e7]),
+    ])
+    sv_labels = ["G05", "G05", "G05", "G05", "G05"]
+    pr = np.linalg.norm(sv - truth, axis=1)
+    records = read_bsx(bsx_file)
+
+    sol_off = spp_solve(sv, pr)
+    sol_on = spp_solve(
+        sv, pr.copy(),
+        sv_labels=sv_labels,
+        dcb_records=records,
+        dcb_obs_code="C1W",
+    )
+    # Sat-side OSB for G05 / C1W is -7.1234 ns -> ~-2.14 m. Applied to
+    # every SV identically, so position stays put and only clock moves.
+    expected_m = -7.1234 * C_M_PER_S * 1e-9
+    diff_pos = np.linalg.norm(
+        np.array(sol_on["position"]) - np.array(sol_off["position"])
+    )
+    diff_clk_m = C_M_PER_S * (sol_on["clock_bias"] - sol_off["clock_bias"])
+    assert diff_pos < 1e-6
+    assert diff_clk_m == pytest.approx(expected_m, abs=1e-6)
+
+
+def test_spp_solve_applies_tgd_map(bsx_file: Path):
+    """spp_solve(tgd_map=..., sv_labels=...) subtracts c*gamma*TGD per
+    SV, shifting the receiver-clock estimate."""
+    import numpy as np
+    from rinexpy.geodesy import lla_to_ecef
+    from rinexpy.positioning import spp_solve
+
+    truth = np.array(lla_to_ecef(40.0, -3.0, 100.0))
+    sv = np.array([
+        truth + np.array([2.0e7, 1.0e7, 1.5e7]),
+        truth + np.array([-2.0e7, 1.0e7, 1.5e7]),
+        truth + np.array([0.0, 2.0e7, 2.0e7]),
+        truth + np.array([0.0, -2.0e7, 1.0e7]),
+        truth + np.array([1.5e7, 0.0, 1.7e7]),
+    ])
+    sv_labels = ["G01", "G02", "G03", "G04", "G05"]
+    pr = np.linalg.norm(sv - truth, axis=1)
+    tgd_map = {s: 5e-9 for s in sv_labels}  # 5 ns common TGD
+
+    sol_off = spp_solve(sv, pr)
+    sol_on = spp_solve(sv, pr.copy(), sv_labels=sv_labels, tgd_map=tgd_map)
+    expected_m = -C_M_PER_S * 5e-9
+    diff_clk_m = C_M_PER_S * (sol_on["clock_bias"] - sol_off["clock_bias"])
+    assert diff_clk_m == pytest.approx(expected_m, abs=1e-6)
+
+
+def test_spp_solve_dcb_requires_sv_labels(bsx_file: Path):
+    import numpy as np
+    from rinexpy.positioning import spp_solve
+    sv = np.zeros((5, 3))
+    sv[:, 0] = np.linspace(2.0e7, 2.5e7, 5)
+    pr = np.full(5, 2.3e7)
+    records = read_bsx(bsx_file)
+    with pytest.raises(ValueError):
+        spp_solve(sv, pr, dcb_records=records, dcb_obs_code="C1W")
