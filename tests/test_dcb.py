@@ -7,7 +7,9 @@ from pathlib import Path
 
 import pytest
 
-from rinexpy.dcb import C_M_PER_S, correct_pseudorange, get_bias, read_bsx
+from rinexpy.dcb import (
+    C_M_PER_S, correct_pseudorange, get_bias, read_bsx, read_code_dcb,
+)
 
 
 SAMPLE_BSX = """\
@@ -191,3 +193,94 @@ def test_spp_solve_dcb_requires_sv_labels(bsx_file: Path):
     records = read_bsx(bsx_file)
     with pytest.raises(ValueError):
         spp_solve(sv, pr, dcb_records=records, dcb_obs_code="C1W")
+
+
+# ---------------------------------------------------------------------------
+# Legacy AIUB CODE monthly DCB reader (pre-2017 format)
+# ---------------------------------------------------------------------------
+
+
+_SAMPLE_CODE_P1P2 = """\
+                P1-P2 DIFFERENTIAL CODE BIASES (DCB) FOR SATELLITES AND STATIONS
+                CODE'S MONTHLY DCB SOLUTION
+                Reference: AIUB Astronomical Institute, University of Bern
+
+PRN / STATION NAME        VALUE (NS)  RMS (NS)
+***  ****************     *****.****  ****.****
+G01                       -2.5470     0.0245
+G02                        0.6730     0.0312
+G05                       -1.1234     0.0210
+ALGO                       2.4500     0.0500
+"""
+
+_SAMPLE_CODE_P1C1 = """\
+                P1-C1 DIFFERENTIAL CODE BIASES (DCB) FOR SATELLITES AND STATIONS
+                Reference: AIUB
+
+PRN / STATION NAME        VALUE (NS)  RMS (NS)
+G01                       -0.4900     0.0520
+G05                        0.3210     0.0480
+"""
+
+
+@pytest.fixture
+def code_p1p2_file(tmp_path: Path) -> Path:
+    p = tmp_path / "P1P21001.DCB"
+    p.write_text(_SAMPLE_CODE_P1P2)
+    return p
+
+
+def test_read_code_dcb_parses_satellite_records(code_p1p2_file: Path):
+    records = read_code_dcb(code_p1p2_file)
+    sats = [r for r in records if r["prn"]]
+    assert len(sats) == 3
+    g05 = next(r for r in sats if r["prn"] == "G05")
+    assert g05["obs1"] == "C1W"  # P1
+    assert g05["obs2"] == "C2W"  # P2
+    assert g05["bias_type"] == "DSB"
+    assert g05["unit"] == "ns"
+    assert g05["value"] == pytest.approx(-1.1234)
+
+
+def test_read_code_dcb_parses_station_records(code_p1p2_file: Path):
+    records = read_code_dcb(code_p1p2_file)
+    algo = next(r for r in records if r["station"] == "ALGO")
+    assert algo["prn"] == ""
+    assert algo["value"] == pytest.approx(2.4500)
+
+
+def test_read_code_dcb_infers_validity_window_from_filename(code_p1p2_file: Path):
+    """P1P21001.DCB -> January 2010 validity window."""
+    records = read_code_dcb(code_p1p2_file)
+    rec = records[0]
+    assert rec["start"].year == 2010
+    assert rec["start"].month == 1
+    assert rec["end"].year == 2010
+    assert rec["end"].month == 1
+    assert rec["end"].day == 31
+
+
+def test_read_code_dcb_explicit_year_month(tmp_path: Path):
+    p = tmp_path / "anything.dcb"
+    p.write_text(_SAMPLE_CODE_P1P2)
+    records = read_code_dcb(p, year=2015, month=6)
+    assert records[0]["start"].year == 2015
+    assert records[0]["start"].month == 6
+
+
+def test_read_code_dcb_p1c1_section(tmp_path: Path):
+    p = tmp_path / "P1C11005.DCB"
+    p.write_text(_SAMPLE_CODE_P1C1)
+    records = read_code_dcb(p)
+    g01 = next(r for r in records if r["prn"] == "G01")
+    assert g01["obs1"] == "C1W"  # P1
+    assert g01["obs2"] == "C1C"  # C1
+    assert g01["value"] == pytest.approx(-0.4900)
+
+
+def test_read_code_dcb_records_plug_into_get_bias(code_p1p2_file: Path):
+    """CODE records should be queryable by get_bias just like SINEX
+    records - that's the whole point of unifying the schema."""
+    records = read_code_dcb(code_p1p2_file)
+    b = get_bias(records, prn="G05", obs1="C1W", obs2="C2W")
+    assert b == pytest.approx(-1.1234 * C_M_PER_S * 1e-9)

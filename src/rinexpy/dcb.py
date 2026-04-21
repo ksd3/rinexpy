@@ -242,4 +242,150 @@ def correct_pseudorange(
     return pseudorange_m + b_sv + b_rx
 
 
-__all__ = ["correct_pseudorange", "get_bias", "read_bsx"]
+# ---------------------------------------------------------------------------
+# Legacy CODE DCB (AIUB) reader
+# ---------------------------------------------------------------------------
+#
+# Before the SINEX-BIAS format (~2017), AIUB / CODE published *monthly*
+# DCB files in a fixed-column ASCII format:
+#
+#     P1P2YYMM.DCB  -- P1 - P2 differential code biases (the main one)
+#     P1C1YYMM.DCB  -- P1 - C1
+#     P2C2YYMM.DCB  -- P2 - C2
+#
+# A single file usually carries multiple sections (satellite + station
+# blocks per bias type). Each data line is:
+#
+#     PRN_or_STATION(cols 1-20)  VALUE_NS(cols 21-35)  RMS_NS(cols 36-50)
+#
+# The header above the data identifies which bias-pair the section is
+# (e.g. ``P1-P2 DIFFERENTIAL CODE BIASES``). This reader returns records
+# in the same shape as :func:`read_bsx`, so callers can pass them
+# straight to :func:`get_bias` / :func:`correct_pseudorange` and to
+# ``ppp_solve(dcb_records=...)`` / ``spp_solve(dcb_records=...)``.
+
+#: Translation table: CODE's "P1/P2/C1/C2" -> RINEX-3 observation codes.
+_CODE_OBS_TO_RNX3: dict[str, str] = {
+    "P1": "C1W",
+    "P2": "C2W",
+    "C1": "C1C",
+    "C2": "C2C",
+}
+
+
+def _detect_dcb_pair(line: str) -> tuple[str, str] | None:
+    """Return the (obs1, obs2) RINEX-3 codes implied by a section header,
+    or None if the line is not a recognised header."""
+    upper = line.upper()
+    for tag in ("P1-P2", "P1-C1", "P2-C2", "P1P2", "P1C1", "P2C2"):
+        if tag in upper:
+            tag = tag.replace("-", "")
+            a, b = tag[:2], tag[2:]
+            return _CODE_OBS_TO_RNX3.get(a, ""), _CODE_OBS_TO_RNX3.get(b, "")
+    return None
+
+
+def _month_window(year: int, month: int) -> tuple[datetime, datetime]:
+    """Return the (start, end) validity window for a monthly DCB file
+    as UTC datetimes covering the whole calendar month."""
+    start = datetime(year, month, 1, tzinfo=timezone.utc)
+    if month == 12:
+        end = datetime(year + 1, 1, 1, tzinfo=timezone.utc) - timedelta(seconds=1)
+    else:
+        end = datetime(year, month + 1, 1, tzinfo=timezone.utc) - timedelta(seconds=1)
+    return start, end
+
+
+def read_code_dcb(
+    path,
+    *,
+    year: int | None = None,
+    month: int | None = None,
+) -> list[dict[str, Any]]:
+    """Parse an AIUB CODE monthly DCB file into bias records.
+
+    Each record matches the shape returned by :func:`read_bsx`, with
+    ``bias_type="DSB"`` (every CODE DCB is differential), and the
+    ``obs1`` / ``obs2`` translated to RINEX-3 codes via
+    :data:`_CODE_OBS_TO_RNX3`.
+
+    Parameters
+    ----------
+    path:
+        Path to the (already-decompressed) ``.DCB`` text file.
+    year, month:
+        Optional year + month for the record's validity window. If
+        omitted, an attempt is made to infer them from the filename
+        suffix (``P1P2YYMM.DCB``); failing that the window is left at
+        an open ``(1900, 2099)`` range.
+
+    Returns
+    -------
+    list[dict]
+        Bias records compatible with :func:`get_bias` /
+        :func:`correct_pseudorange`.
+    """
+    path = Path(path)
+    text = path.read_text(errors="ignore")
+
+    # Validity window: explicit args > filename suffix > open range.
+    if year is None or month is None:
+        stem = path.stem.upper()
+        if len(stem) >= 8 and stem[:4] in ("P1P2", "P1C1", "P2C2"):
+            try:
+                yy = int(stem[4:6])
+                mm = int(stem[6:8])
+                yr = 2000 + yy if yy < 90 else 1900 + yy
+                if 1 <= mm <= 12:
+                    year, month = yr, mm
+            except ValueError:
+                pass
+    if year is not None and month is not None:
+        start, end = _month_window(int(year), int(month))
+    else:
+        start = datetime(1900, 1, 1, tzinfo=timezone.utc)
+        end = datetime(2099, 12, 31, 23, 59, 59, tzinfo=timezone.utc)
+
+    out: list[dict[str, Any]] = []
+    current_pair: tuple[str, str] | None = None
+    for raw in text.splitlines():
+        if not raw.strip() or raw.startswith("*"):
+            continue
+        pair = _detect_dcb_pair(raw)
+        if pair is not None:
+            current_pair = pair
+            continue
+        if current_pair is None:
+            continue
+        # Data line: first 4 chars hold a satellite PRN like "G01"
+        # (possibly followed by 16 chars of station/site description),
+        # or a 4-char station code followed by a longer name. The
+        # value (ns) and RMS (ns) follow after a wide space block.
+        tokens = raw.split()
+        if len(tokens) < 2:
+            continue
+        ident = tokens[0]
+        try:
+            value_ns = float(tokens[-2])
+        except (ValueError, IndexError):
+            try:
+                value_ns = float(tokens[-1])
+            except ValueError:
+                continue
+        is_prn = len(ident) == 3 and ident[0] in "GREJCIS" and ident[1:].isdigit()
+        record = {
+            "bias_type": "DSB",
+            "prn": ident if is_prn else "",
+            "station": "" if is_prn else ident,
+            "obs1": current_pair[0],
+            "obs2": current_pair[1],
+            "start": start,
+            "end": end,
+            "unit": "ns",
+            "value": value_ns,
+        }
+        out.append(record)
+    return out
+
+
+__all__ = ["correct_pseudorange", "get_bias", "read_bsx", "read_code_dcb"]

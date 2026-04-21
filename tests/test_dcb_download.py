@@ -16,10 +16,15 @@ from unittest.mock import patch
 import pytest
 
 from rinexpy.dcb_download import (
+    auto_load_dcb,
     download_dcb,
+    download_legacy_code_dcb,
     load_daily_dcb,
+    load_monthly_code_dcb,
     _build_filename,
     _build_url,
+    _legacy_filename,
+    _legacy_url,
 )
 
 
@@ -133,3 +138,90 @@ def test_load_daily_dcb_parses_downloaded_file(tmp_path):
     assert rec["prn"] == "G05"
     assert rec["obs1"] == "C1W"
     assert rec["bias_type"] == "OSB"
+
+
+# ---------------------------------------------------------------------------
+# Legacy AIUB CODE monthly DCB autodownload (pre-2017)
+# ---------------------------------------------------------------------------
+
+
+_SAMPLE_CODE_TEXT = b"""\
+                P1-P2 DIFFERENTIAL CODE BIASES (DCB) FOR SATELLITES AND STATIONS
+                Reference: AIUB
+
+PRN / STATION NAME        VALUE (NS)  RMS (NS)
+G05                       -2.5470     0.0245
+"""
+
+
+def test_legacy_filename_long_name():
+    name = _legacy_filename(datetime(2010, 1, 15), "P1P2")
+    assert name == "P1P21001.DCB.Z"
+
+
+def test_legacy_filename_rejects_unknown_product():
+    with pytest.raises(ValueError):
+        _legacy_filename(datetime(2010, 1, 1), "DLR")
+
+
+def test_legacy_url_targets_aiub():
+    url = _legacy_url(datetime(2014, 6, 1), "P1C1")
+    assert url == "http://ftp.aiub.unibe.ch/CODE/2014/P1C11406.DCB.Z"
+
+
+def test_download_legacy_code_dcb_plain_payload(tmp_path):
+    """If the server returns a plain (uncompressed) body, the
+    downloader passes it through unchanged."""
+    with patch("rinexpy.dcb_download.urlopen",
+               return_value=_FakeResponse(_SAMPLE_CODE_TEXT)) as m:
+        path = download_legacy_code_dcb(
+            datetime(2010, 1, 15), product="P1P2", cache_dir=tmp_path,
+        )
+    assert m.call_count == 1
+    assert path.name == "P1P21001.DCB"
+    assert path.read_bytes() == _SAMPLE_CODE_TEXT
+
+
+def test_download_legacy_code_dcb_caches(tmp_path):
+    with patch("rinexpy.dcb_download.urlopen",
+               return_value=_FakeResponse(_SAMPLE_CODE_TEXT)) as m:
+        download_legacy_code_dcb(datetime(2010, 1, 15), cache_dir=tmp_path)
+        download_legacy_code_dcb(datetime(2010, 1, 15), cache_dir=tmp_path)
+    assert m.call_count == 1
+
+
+def test_load_monthly_code_dcb_parses(tmp_path):
+    with patch("rinexpy.dcb_download.urlopen",
+               return_value=_FakeResponse(_SAMPLE_CODE_TEXT)):
+        records = load_monthly_code_dcb(
+            datetime(2010, 1, 15), product="P1P2", cache_dir=tmp_path,
+        )
+    assert len(records) == 1
+    rec = records[0]
+    assert rec["prn"] == "G05"
+    assert rec["obs1"] == "C1W"
+    assert rec["obs2"] == "C2W"
+    assert rec["bias_type"] == "DSB"
+
+
+def test_auto_load_dcb_routes_pre_2017_to_aiub(tmp_path):
+    """A 2010 date should route through the legacy AIUB / CODE path."""
+    with patch("rinexpy.dcb_download.urlopen",
+               return_value=_FakeResponse(_SAMPLE_CODE_TEXT)) as m:
+        records = auto_load_dcb(datetime(2010, 6, 15), cache_dir=tmp_path)
+    assert m.call_count == 1
+    url = m.call_args[0][0].full_url
+    assert "aiub.unibe.ch/CODE/2010/" in url
+    assert records[0]["bias_type"] == "DSB"
+
+
+def test_auto_load_dcb_routes_post_2017_to_bkg(tmp_path):
+    """A 2024 date should route through the MGEX daily path."""
+    gz_payload = gzip.compress(_SAMPLE_BSX)
+    with patch("rinexpy.dcb_download.urlopen",
+               return_value=_FakeResponse(gz_payload)) as m:
+        records = auto_load_dcb(datetime(2024, 4, 15), cache_dir=tmp_path)
+    assert m.call_count == 1
+    url = m.call_args[0][0].full_url
+    assert "igs.bkg.bund.de" in url
+    assert records[0]["bias_type"] == "OSB"
