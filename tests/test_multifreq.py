@@ -126,3 +126,22 @@ def test_lambda_dual_freq_unfixed_when_noisy():
     out = lambda_dual_freq(a_l1, a_l2, sigma_threshold=0.25)
     assert out["fixed_mask"][1] is np.False_ or not out["fixed_mask"][1]
     assert out["N_L1"][1] == 0  # zeroed when unfixed
+
+
+def test_resolve_wide_lane_handles_nan_without_cast_warning():
+    """NaN / inf entries in the MW result must NOT trigger numpy's
+    'invalid value encountered in cast' warning."""
+    import warnings as _w
+
+    phi1 = np.array([np.nan, 100.0, np.nan])
+    phi2 = np.array([np.nan, 80.0, np.nan])
+    p1 = np.array([np.nan, 1e7, np.nan])
+    p2 = np.array([np.nan, 1e7, np.nan])
+    with _w.catch_warnings():
+        _w.simplefilter("error", RuntimeWarning)
+        out = resolve_wide_lane(phi1, phi2, p1, p2)
+    # Non-finite SVs are reported as unfixed with N_WL=0.
+    assert not out["fixed_mask"][0]
+    assert not out["fixed_mask"][2]
+    assert out["N_WL"][0] == 0
+    assert out["N_WL"][2] == 0

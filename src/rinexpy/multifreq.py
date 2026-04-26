@@ -140,9 +140,15 @@ def resolve_wide_lane(
     """
     mw = melbourne_wubbena(phi1_cycles, phi2_cycles, p1_m, p2_m)
     float_n = mw / LAMBDA_WL
-    n_int = np.round(float_n).astype(int)
-    residual = float_n - n_int
-    fixed_mask = np.abs(residual) < sigma_threshold
+    # Cast only the finite entries to int; NaN/inf SVs are reported as
+    # unfixed (N_WL = 0, fixed_mask = False) without triggering the
+    # "invalid value encountered in cast" warning.
+    finite = np.isfinite(float_n)
+    n_int = np.zeros(float_n.shape, dtype=int)
+    if finite.any():
+        n_int[finite] = np.round(float_n[finite]).astype(int)
+    residual = np.where(finite, float_n - n_int, np.inf)
+    fixed_mask = finite & (np.abs(residual) < sigma_threshold)
     n_int_safe = n_int.copy()
     n_int_safe[~fixed_mask] = 0
     fraction = float(np.mean(fixed_mask)) if fixed_mask.size else 0.0
