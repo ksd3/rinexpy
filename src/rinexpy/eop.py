@@ -129,9 +129,16 @@ def interp_eop(eop: xr.Dataset, epoch: datetime | np.datetime64) -> dict[str, An
     ValueError
         If ``epoch`` is outside the dataset's time range.
     """
-    t_ns = (
-        epoch if isinstance(epoch, np.datetime64) else np.datetime64(epoch, "ns")
-    )
+    if isinstance(epoch, np.datetime64):
+        t_ns = epoch
+    else:
+        # np.datetime64 warns (and drops) tzinfo. EOP / IERS data is
+        # always UTC, so coerce a tz-aware datetime to its UTC-naive
+        # equivalent before the cast.
+        if getattr(epoch, "tzinfo", None) is not None:
+            from datetime import timezone as _tz
+            epoch = epoch.astimezone(_tz.utc).replace(tzinfo=None)
+        t_ns = np.datetime64(epoch, "ns")
     times = eop.time.values.astype("datetime64[ns]")
     if t_ns < times[0] or t_ns > times[-1]:
         raise ValueError(

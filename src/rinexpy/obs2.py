@@ -333,11 +333,11 @@ def _attach_obs_attrs(
     obs.attrs["version"] = hdr["version"]
     if "interval" in hdr:
         obs.attrs["interval"] = hdr["interval"]
-    elif "time" in obs.coords:
+    elif "time" in obs.coords and obs.time.size >= 2:
         try:
             obs.attrs["interval"] = float(np.median(np.diff(obs.time) / np.timedelta64(1, "s")))
         except (TypeError, ValueError):
-            pass
+            obs.attrs["interval"] = float("nan")
     else:
         obs.attrs["interval"] = float("nan")
     obs.attrs["rinextype"] = "obs"

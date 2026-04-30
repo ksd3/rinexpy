@@ -466,7 +466,7 @@ def _attach_obs3_attrs(
     data.attrs["version"] = hdr.get("version", 0)
     if "interval" in hdr:
         data.attrs["interval"] = hdr["interval"]
-    elif "time" in data.coords and data.time.size > 0:
+    elif "time" in data.coords and data.time.size >= 2:
         try:
             data.attrs["interval"] = float(np.median(np.diff(data.time) / np.timedelta64(1, "s")))
         except (TypeError, ValueError):
