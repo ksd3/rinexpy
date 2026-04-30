@@ -10,9 +10,14 @@ Dataset once at the end. On the shared corpus this works out to
 13-33× faster on RINEX-3 NAV/OBS (see [BENCHMARKS.md](docs/BENCHMARKS.md)).
 
 Other things landed on top: SP3, CLK, IONEX, ANTEX readers; RTCM 2
-and 3 with NTRIP; vendor binary formats (UBX, SBF, NovAtel, BINEX,
-NMEA-0183); single-point positioning; an RTK loop with LAMBDA
-integer fixing.
+and 3 (including the full SSR family) with NTRIP, sync and async;
+vendor binary formats (UBX, SBF, NovAtel, BINEX, NMEA-0183); raw
+nav-message decoders for GPS LNAV/CNAV/CNAV-2, Galileo F-NAV/I-NAV,
+GLONASS strings, NavIC, BeiDou D1/D2, and the SBAS L1 stream; SPP
+with RAIM, RTK with LAMBDA integer fixing plus a sequential variant
+with ambiguity carry-over, a static-or-kinematic EKF, and a PPP
+driver that wires SP3+CLK (or RTCM-SSR), ANTEX PCV, GPT2w+VMF1
+troposphere, DCB, and carrier-phase wind-up into one call.
 
 ```python
 import rinexpy as rp
@@ -103,21 +108,37 @@ Full support:
 Partial:
 
 - RTCM 3.x. Decoders for 1004 (extended L1/L2 RTK obs), 1005, 1006,
-  1019, 1020, 1033, MSM4 (1074-1134), MSM7 (1077-1137). Other IDs
-  come back with raw payload bytes.
+  1019, 1020, 1029 (text), 1033, 1230 (GLONASS code-phase biases),
+  the full MSM 1-7 family (1074-1134 + 1077-1137 etc.), the SSR
+  family (1057-1068 GPS+GLONASS, 1240-1263 Galileo/QZSS/SBAS/BeiDou),
+  and IGS-SSR MT 4076. Other IDs come back with raw payload bytes.
 - RTCM 2.x. Decoders for messages 1, 3, 9 (DGPS pseudorange / ECEF /
   high-rate corrections). Other types come back as raw 24-bit data
   words. Hamming parity is NOT validated.
+- SBAS L1. Message types 1, 2-5, 6, 7, 9, 17, 18, 24, 25, 26
+  (PRN mask, fast corrections, integrity, GEO ranging, almanacs,
+  iono grid, long-term + iono delays). RTCA DO-229E §A.4.
 - NMEA-0183. GGA, RMC, GSA, GSV, VTG.
 - UBX, SBF, NovAtel OEM. Binary framing plus checksum plus a small
   set of high-value records (NAV-PVT, NAV-SAT, RXM-RAWX, RXM-SFRBX
   for UBX; PVTGeodetic, MeasEpoch, GPSNav for SBF; BESTPOS, BESTXYZ,
   RAWEPHEM for NovAtel). Other IDs return raw payload bytes.
 - BINEX. Framing, ubnxi, and checksum; bodies returned as raw bytes.
-- BeiDou. D1 subframe 1 (clock + iono coefficients) and D2 page 1
-  (clock). Ephemeris subframes 2/3 and almanac 4/5 not yet decoded.
+- BeiDou D1 subframe 1 + D2 page 1 (clock + iono).
+- GPS LNAV (subframes 1-3), CNAV (MT 10, 11), CNAV-2 (subframe 2).
+- Galileo F-NAV (page 1, 2), I-NAV (word 1, 4).
+- GLONASS L1OF/L2OF strings 1, 2, 3 (X/Y/Z + velocity +
+  acceleration, sign-magnitude encoding per ICD §4.4).
+- NavIC / IRNSS subframes 1 and 2; subframes 3/4 returned with
+  message-id + raw payload for downstream dispatch.
+- RINEX 4 NAV. STO, EOP, ION (Klobuchar / NeQuick-G / BDGIM) per
+  RINEX 4.01 §5.
 - GPT2w empirical met grid. The grid file (`gpt2_5w.grd`) is user-
   supplied from the VMF Data Server; not shipped here.
+- DCB autodownload. Daily SINEX-BIAS from IGS BKG (MGEX CAS rapid)
+  for dates from 2017 on, and monthly CODE P1-P2 / P1-C1 / P2-C2
+  from AIUB for earlier dates. CDDIS path is wired but requires
+  NASA Earthdata Login in `~/.netrc`.
 
 ## Examples
 
@@ -141,11 +162,11 @@ Convert a directory in parallel:
 rp.batch_convert("data/", "*.rnx.gz", "out/", workers=8)
 ```
 
-Single-point positioning:
+Single-point positioning, with optional RAIM fault detection:
 
 ```python
-sol = rp.spp_solve(sv_ecef, pseudoranges_m)
-print(sol["lla"])
+sol = rp.spp_solve(sv_ecef, pseudoranges_m, raim=True)
+print(sol["lla"], sol["excluded_svs"])
 ```
 
 RTK with LAMBDA integer fix:
@@ -157,6 +178,45 @@ from rinexpy.multifreq import LAMBDA_L1
 sol = rtk_fix(pr_r, pr_b, phase_r, phase_b, sv_ecef, base_ecef,
               wavelength=LAMBDA_L1, ratio_threshold=3.0)
 print(sol["fixed"]["baseline"])
+```
+
+Sequential RTK that carries the integer fix across epochs:
+
+```python
+from rinexpy.rtk import SequentialRTK
+rtk = SequentialRTK(base_ecef, wavelength=LAMBDA_L1)
+for epoch in epochs:
+    result = rtk.update(svs, rover_pr, base_pr, rover_phase, base_phase, sv_ecef)
+    if result["fixed_accepted"]:
+        print(result["baseline"], "carried:", result["carry_over_count"])
+```
+
+Static-receiver PPP with SP3 + CLK and the full correction stack:
+
+```python
+from rinexpy.ppp import ppp_solve
+from rinexpy.dcb_download import auto_load_dcb
+from rinexpy.antex import find_antenna, load_antex
+
+ant = find_antenna(load_antex("igs20.atx"), "TRM59800.00     NONE")
+dcb = auto_load_dcb(obs.time.values[0].astype("datetime64[D]").astype(object))
+out = ppp_solve(
+    obs, sp3, clk,
+    antenna=ant,
+    dcb_records=dcb,
+    apply_wind_up=True,
+)
+print(out["lla"], "1-sigma:", out["position_sigma_m"])
+```
+
+Same driver, but with real-time SSR replacing CLK:
+
+```python
+from rinexpy.ssr import SSRCorrections
+from rinexpy.rtcm3 import iter_messages
+
+ssr = SSRCorrections(iter_messages(open("ssr-stream.rtcm", "rb")))
+out = ppp_solve(obs, sp3, clk=None, ssr=ssr)
 ```
 
 Read RTCM3 from an NTRIP caster:
@@ -181,6 +241,11 @@ rinexpy read myfile.18o
 rinexpy times myfile.18o
 rinexpy info myfile.18o
 rinexpy convert path/to/data "*.rnx.gz" --out converted/ -j 4
+rinexpy spp myfile.18o myfile.18n
+rinexpy rtk rover.obs base.obs nav.nav
+rinexpy ppp obs.rnx sp3 clk
+rinexpy splice a.obs b.obs --out joined.obs
+rinexpy decimate myfile.obs --interval 30
 ```
 
 ## Tests
