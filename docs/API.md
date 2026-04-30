@@ -148,10 +148,34 @@ meters.
 Lagrange interpolation of SP3 positions to arbitrary epochs. Default
 order is 10, per the IGS recommendation.
 
-### `rinexpy.spp_solve(sv_ecef, pseudoranges, *, initial_guess=(0,0,0), max_iter=10, tol=1e-3) -> dict`
+### `rinexpy.spp_solve(sv_ecef, pseudoranges, *, initial_guess=(0,0,0), max_iter=10, tol=1e-3, raim=False, sigma_pr=5.0, p_fa=1e-4, max_exclusions=2, sv_labels=None, dcb_records=None, dcb_obs_code="", dcb_station="", dcb_epoch=None, tgd_map=None, tgd_gamma=1.0) -> dict`
 
 Single-point positioning by iterative LSQ. Returns `position`,
 `clock_bias`, `n_iter`, `residuals`, `lla`.
+
+- `raim=True` delegates to `spp_solve_raim` and adds `raim_test`,
+  `raim_threshold`, `fault_detected`, `excluded_svs`, `raim_failed`.
+- `dcb_records=` (from `rinexpy.dcb.read_bsx`) + `dcb_obs_code=`
+  applies SINEX-BIAS OSB corrections per SV (and per station when
+  `dcb_station=` is set).
+- `tgd_map={sv: tgd_seconds}` (from `tgd_from_nav`) applies the
+  broadcast group delay. `tgd_gamma=1` on L1, `(f1/f2)**2` on L2,
+  `0` for the iono-free combination.
+
+### `rinexpy.positioning.spp_solve_raim(sv_ecef, pseudoranges, *, sigma_pr=5.0, p_fa=1e-4, max_exclusions=2, ...) -> dict`
+
+Direct entry point for RAIM-instrumented SPP. Same return dict as
+`spp_solve(raim=True)`.
+
+### `rinexpy.positioning.tgd_from_nav(nav, epoch, *, field="TGD") -> dict`
+
+Pull per-SV broadcast group-delay values from a NAV dataset.
+Handles GPS `TGD`, BeiDou `TGD1`/`TGD2`, Galileo `BGDe5a`/`BGDe5b`.
+
+### `rinexpy.positioning.apply_tgd_correction(pseudoranges, sv_labels, tgd_map, *, gamma=1.0) -> ndarray`
+
+Subtract `c * gamma * TGD` per SV from `pseudoranges`. Pair with
+`tgd_from_nav` for broadcast-only single-frequency SPP.
 
 ## RTK
 
@@ -165,6 +189,27 @@ signature.
 End-to-end RTK with LAMBDA integer fix. Returns `float`, `fixed`,
 `lambda` sub-dicts and `fixed_accepted` (bool).
 
+### `rinexpy.rtk.SequentialRTK(base_position_ecef, *, wavelength, ratio_threshold=3.0, slip_threshold_cycles=0.5, sigma_pr=1.0, sigma_phase=0.005, min_lock_to_fix=2)`
+
+Multi-epoch RTK with integer-ambiguity carry-over, per-SV cycle-slip
+detection (inter-epoch SD phase vs SD code), and partial AR on the
+most-precise subset when the full ratio test fails.
+
+```python
+rtk = SequentialRTK(base_ecef, wavelength=LAMBDA_L1)
+out = rtk.update(svs, rover_pr, base_pr, rover_phase, base_phase, sv_ecef)
+# out: baseline, rover_position, n_total, n_fixed, fixed_accepted,
+#      ratio, carry_over_count, slipped_svs.
+```
+
+Call `rtk.reset()` to drop all per-SV state.
+
+### `rinexpy.rtk.SequentialRTK.update(sv_ids, rover_pr, base_pr, rover_phase, base_phase, sv_positions_ecef, *, initial_baseline=None) -> dict`
+
+Process one epoch. Internally calls `rtk_fix`, runs partial AR if the
+full fix is rejected, and updates the cycle-slip / lock tracking
+state. Returns the per-epoch result dict described above.
+
 ### `rinexpy.lambda_resolve(a_float, Q, *, ratio_threshold=3.0) -> dict`
 
 Single-frequency LAMBDA integer ambiguity resolution. Returns
@@ -174,6 +219,254 @@ Single-frequency LAMBDA integer ambiguity resolution. Returns
 
 Dual-frequency LAMBDA-style fix via Wide-Lane / Narrow-Lane, with
 Melbourne-Wübbena when pseudoranges are supplied.
+
+## Precise Point Positioning (PPP)
+
+### `rinexpy.ppp.ppp_solve(obs, sp3, clk=None, *, initial_position_ecef=None, obs_codes=None, sigma_code=1.0, sigma_phase=0.005, elevation_mask_deg=7.0, max_epochs=None, apply_tropo=True, antenna=None, gpt2w_grid=None, dcb_records=None, station_id="", apply_wind_up=False, ssr=None) -> dict`
+
+Static-receiver PPP driver. Composes:
+
+- `interp.interpolate_sp3` and `clk.interpolate_clk` per epoch.
+- `geodesy.saastamoinen` (default) or `vmf1` over GPT2w-derived
+  (ZHD, ZWD) when `gpt2w_grid=` is supplied.
+- `antex.apply_antex_pcv` per SV per band when `antenna=` is given.
+- `dcb.get_bias` per SV (and per receiver station) when `dcb_records=`
+  is given.
+- `geodesy.phase_wind_up_correction` when `apply_wind_up=True`.
+- `kalman.GNSSFilter` (= `StaticPPPFilter`) as the per-epoch EKF.
+
+Auto-picks an L1/L2 obs-code quadruple from the dataset
+(`C1C/C2W/L1C/L2W` first, then a documented priority list). Override
+with `obs_codes=(C1, C2, L1, L2)`.
+
+`clk=None` is permitted when `ssr=` is supplied — the SSR clock
+correction then replaces the CLK lookup for every SV with an SSR
+entry.
+
+Returns `{position, lla, clock_bias_s, position_sigma_m, n_epochs,
+trace, obs_codes, filter}`. `trace` is a per-epoch list of
+`{epoch, position, clock_bias_s}`.
+
+### `rinexpy.kalman.GNSSFilter(n_sv, initial_position, *, sigma_code=1.0, sigma_phase=0.005, sigma_position_init=10.0, sigma_clock_init=300.0, sigma_clock_rate_m=10.0, sigma_position_rate_m=0.0, sigma_ambig_init_m=1000.0)`
+
+The named EKF entry point — an alias for `StaticPPPFilter`. State is
+`[px, py, pz, c*dt, N_1, ..., N_n_sv]`. Static when
+`sigma_position_rate_m=0` (default); kinematic when > 0 (the position
+variance grows by `rate^2 * dt` per `predict(dt)`).
+
+Methods: `predict(dt)`, `update(sv_ecef, sat_clock_s, pr_if, phase_if,
+tropo_m=None)`, `update_with_slip_check(...)`, `reset_ambiguity(sv_index)`,
+`reset_ambiguities(sv_indices)`. Properties: `position`, `clock_bias_s`,
+`ambiguities_m`, `position_sigma`.
+
+`rinexpy.kalman_multignss.StaticPPPFilterMultiGNSS` and
+`rinexpy.kalman_ztd.StaticPPPFilterZTD` are siblings with the
+constellation-aware and ZTD-augmented state vectors.
+
+### `rinexpy.ssr.SSRCorrections(messages=None)`
+
+Composer over decoded RTCM3 SSR messages. Absorbs orbit (1057, 1063,
+1240, 1246, 1252, 1258), clock (1058, 1064, 1241, ...), combined
+(1060, 1066, ...), and code-bias (1059, 1065, 1242, ...) messages.
+
+Methods:
+
+- `add_message(msg)` — absorb one decoded message dict.
+- `orbit_correction_ecef(sv, sat_pos_ecef, sat_vel_ecef, epoch_sow) ->
+  ndarray` — radial / along-track / cross-track delta rotated into
+  ECEF using the SV's instantaneous frame.
+- `clock_correction_s(sv, epoch_sow) -> float` — c0 + c1·dt + c2·dt²
+  evaluated in seconds.
+- `code_bias_m(sv, obs_code) -> float` — per-(SV, RINEX-3 code) bias
+  in meters. Default RINEX-3 mapping for GPS / GLO / GAL / QZS /
+  BDS / SBAS signal IDs is built in.
+- `known_satellites()`, `has_orbit(sv)`, `has_clock(sv)`.
+
+## Snapshot positioning
+
+### `rinexpy.snapshot.snapshot_positioning(code_phase_chips, sv_positions_ecef, initial_position_ecef, *, max_iter=20, tol=1.0) -> dict`
+
+Code-phase-only short-data SPP (van Diggelen A-GPS). Resolves the
+integer-millisecond ambiguity per SV from a coarse position prior,
+then runs a 4-unknown LSQ for `(position, clock_bias)`. Returns
+`position_ecef`, `lla`, `time_bias_s`, `pseudoranges_m`,
+`K_integer_ms`, `n_iter`. Prior must be within ~150 km of truth.
+
+## Network RTK / VRS
+
+### `rinexpy.vrs.synthesize_vrs(bases, rover_approx_pos, *, wavelength) -> dict`
+
+Compose observations from a network of physical bases into a virtual
+base co-located with `rover_approx_pos`. For each SV the synthesized
+pseudorange is the rover's geometric range plus a plane-fit of the
+per-base residuals across the network. Output dict has the same shape
+as the input baseline blocks for `rtk.double_difference_solve` /
+`rtk_fix` (`base_position`, `sv_positions`, `pr`, `phase`).
+
+## GNSS reflectometry
+
+### `rinexpy.gnssr.detrend_snr(snr_db, elevation_rad, *, order=4) -> ndarray`
+
+Subtract a low-order polynomial in `sin(elev)` from the SNR series
+to isolate the multipath oscillation.
+
+### `rinexpy.gnssr.snr_to_sea_height(snr_db, elevation_rad, *, wavelength_m, height_search_m=(0.5, 50.0), n_freqs=1024, detrend_order=4) -> dict`
+
+SNR-based reflector-height retrieval (Larson 2008). Detrends + runs
+an in-tree Lomb-Scargle periodogram, peaks the frequency, converts to
+height as `H = f · lambda / 2`. Returns `height_m`, `peak_power`,
+`frequencies_per_sin_elev`, `power`, `detrended`.
+
+## Antenna PCV calibration
+
+### `rinexpy.antex_calibrate.calibrate_pcv(residuals_m, elevation_rad, azimuth_rad, *, antenna_type, serial="", frequency="G01", valid_from=None, valid_until=None, dazi_deg=5.0, dzen_deg=5.0, zen_max_deg=90.0) -> dict`
+
+Bin a calibration session's post-fit residuals on a 2-D
+(azimuth × zenith) grid, average per cell, and emit an ANTEX-shaped
+entry. NOAZI vector is the azimuth-averaged residual per zenith bin.
+
+### `rinexpy.antex_calibrate.write_antex(entries, path) -> None`
+
+Write a list of calibrated entries to a `.atx` file that round-trips
+cleanly through `rinexpy.antex.load_antex`.
+
+## DCB / SINEX-BIAS
+
+### `rinexpy.dcb.read_bsx(path) -> list[dict]`
+
+Read a SINEX-BIAS (`.BSX`) file. Each record carries `bias_type`
+(`OSB` / `DSB`), `prn`, `station`, `obs1`, `obs2`, `start`, `end`,
+`unit`, `value`.
+
+### `rinexpy.dcb.read_code_dcb(path, *, year=None, month=None) -> list[dict]`
+
+Pre-2017 AIUB CODE monthly DCB reader (`P1P2YYMM.DCB`, etc.). Returns
+records in the same schema as `read_bsx` — CODE's P1/P2/C1/C2 are
+translated to RINEX-3 codes (C1W, C2W, C1C, C2C).
+
+### `rinexpy.dcb.get_bias(records, *, prn="", station="", obs1, obs2="", epoch=None) -> float | None`
+
+Look up one bias value in meters. Returns `None` if no record matches
+the (PRN/station, obs1, obs2, epoch) tuple.
+
+### `rinexpy.dcb.correct_pseudorange(pseudorange_m, *, prn, obs_code, records, epoch=None, station="") -> float`
+
+Apply satellite (and optional receiver) OSB to one pseudorange.
+
+### `rinexpy.dcb_download.auto_load_dcb(date, *, cache_dir=None, timeout=60.0, source="bkg") -> list[dict]`
+
+Date-routed convenience: pre-2017 → AIUB CODE monthly P1-P2;
+2017+ → IGS BKG daily MGEX CAS Rapid. Returns records in the unified
+`get_bias`-friendly schema.
+
+### `rinexpy.dcb_download.download_dcb(date, *, product="CAS", cache_dir=None, source="bkg", timeout=60.0) -> Path`
+
+Fetch a daily MGEX SINEX-BIAS from the IGS BKG public mirror (no
+auth) or NASA CDDIS (needs Earthdata Login in `~/.netrc`). Caches the
+decompressed `.BSX` under `~/.cache/rinexpy/dcb/`.
+
+### `rinexpy.dcb_download.download_legacy_code_dcb(date, *, product="P1P2", cache_dir=None, timeout=60.0) -> Path`
+
+Pre-2017 path: fetch one CODE monthly `.DCB.Z` from AIUB and
+decompress (uses `ncompress` from the `[lzw]` extra, or `gzip -dc`
+fallback).
+
+## Modernized-signal nav decoders
+
+Same shape across the family: feed the bit-packed message body bytes,
+get a dict per ICD field.
+
+| module | symbols | signal |
+|---|---|---|
+| `rinexpy.gps_lnav` | `decode_lnav_subframe1/2/3`, `encode_lnav_words` | GPS L1 C/A LNAV |
+| `rinexpy.gps_cnav` | `decode_cnav_mt10`, `decode_cnav_mt11`, `decode_cnav_message` | GPS L2C / L5 CNAV |
+| `rinexpy.gps_cnav2` | `decode_cnav2_subframe2` | GPS L1C CNAV-2 |
+| `rinexpy.galileo_nav` | `decode_fnav_page1/2`, `decode_inav_word1/4` | Galileo F-NAV (E5a) + I-NAV (E1B/E5b) |
+| `rinexpy.glonass` | `decode_glonass_string1/2/3`, `decode_glonass_string` | GLONASS L1OF/L2OF strings (sign-magnitude per ICD §4.4) |
+| `rinexpy.navic` | `decode_navic_subframe1/2`, `decode_navic_subframe34`, `decode_navic_subframe` | NavIC / IRNSS L5 + S |
+| `rinexpy.beidou` | `decode_d1_subframe1`, `decode_d2_page1`, `encode_subframe_words` | BeiDou D1 + D2 |
+| `rinexpy.sbas` | `decode_sbas_mt1/2_5/6/7/9/17/18/24/25/26`, `decode_sbas_message` | SBAS L1 (WAAS / EGNOS / MSAS / GAGAN) |
+
+### `rinexpy.nav4.load_nav4(fn) -> dict[str, list[dict]]`
+
+RINEX 4 NAV reader for the structured record types. Returns a dict
+keyed by `"EPH"`, `"STO"`, `"EOP"`, `"ION"`. ION dispatches by model
+(`KLOB`, `NEQG`, `BDGIM`).
+
+## Tides + EOP
+
+### `rinexpy.tides.solid_earth_tide_displacement(epoch, station_ecef) -> ndarray`
+
+IERS Conventions 2010 step-1 + step-2 solid-earth tide ECEF
+displacement (m) at one station, one epoch.
+
+### `rinexpy.tides.pole_tide_displacement(epoch, station_ecef, eop) -> ndarray`
+
+Solid pole-tide displacement (m). Needs polar-motion values from
+`rinexpy.eop`.
+
+### `rinexpy.tides.ocean_pole_tide_displacement(epoch, station_ecef, eop) -> ndarray`
+
+IERS 2010 ocean-pole-tide model.
+
+### `rinexpy.otl.read_blq(path) -> dict` and `rinexpy.otl.ocean_tide_loading_displacement(coeffs, epoch) -> ndarray`
+
+BLQ-format ocean-tide-loading reader and 11-constituent displacement
+evaluator.
+
+### `rinexpy.geodesy.phase_wind_up_correction(sat_xhat, sat_yhat, rx_xhat, rx_yhat, los_rx_to_sat, *, previous_cycles=0.0) -> float`
+
+Wu et al. 1993 carrier-phase wind-up. Accumulator-style: pass the
+previous epoch's value to keep continuity across 2π wraps.
+
+### `rinexpy.eop.load_eop(fn) -> xarray.Dataset` and `rinexpy.eop.interp_eop(eop, epoch) -> dict`
+
+IERS Bulletin A / C04 reader and `(x, y, ut1_utc, lod, dx, dy)`
+interpolation at one epoch. Pair with `geodesy.ecef_to_eci`.
+
+## Time transfer
+
+### `rinexpy.time_transfer.p3_combination(p1_m, p2_m) -> ndarray`
+
+Iono-free P3 combination per SV.
+
+### `rinexpy.time_transfer.common_view_difference(p3_A, p3_B, rho_A, rho_B) -> ndarray`
+
+Same-SV common-view difference between two stations.
+
+### `rinexpy.time_transfer.estimate_clock_difference_s(differences) -> float`
+
+Robust median estimate of the receiver-clock difference (s).
+
+## QC / multipath / cycle slips
+
+`rinexpy.qc`:
+
+| symbol | purpose |
+|---|---|
+| `detect_slips(obs)` | dispatch slip detection per SV via the best available method |
+| `detect_slips_phase_only`, `_geometry_free`, `_mw` | individual detectors |
+| `mp1(...)`, `mp2(...)` | TEQC-style multipath combinations |
+| `multipath_rms(mp_m)` | per-arc RMS |
+| `hatch_filter(pr, phi, slips, window)` | carrier-smoothed code |
+
+## Spoofing / jamming heuristics
+
+`rinexpy.spoofing`:
+
+| function | purpose |
+|---|---|
+| `check_snr_uniformity(snr_db_by_sv)` | flag suspicious uniform SNR across SVs |
+| `check_position_jumps(positions, *, max_speed_m_s)` | inter-epoch position jumps |
+| `check_clock_drift(times, clock_bias_s, *, max_drift_s_per_s)` | clock-rate sanity |
+| `check_agc(agc, *, baseline)` | AGC level vs baseline |
+
+## RINEX MET
+
+### `rinexpy.load_met(fn) -> xarray.Dataset`
+
+Reader for RINEX MET (`.m`) files (surface met data: pressure,
+temperature, humidity, plus optional sensor metadata).
 
 ## Geodesy
 
@@ -273,11 +566,44 @@ Melbourne-Wübbena when pseudoranges are supplied.
 | `iter_messages(stream, *, check_crc=False)` | yield decoded message dicts |
 | `decode_message(msg_id, body)` | dispatch one message body |
 
-Decoded types: 1004 (extended L1/L2 RTK obs), 1005 (stationary RTK
-reference station), 1006 (1005 + antenna height), 1019 (GPS ephemeris
-subset), 1020 (GLONASS slot/frequency), 1033 (antenna descriptors),
-MSM4 (1074-1134) and MSM7 (1077-1137) full per-cell decoders. Other
-IDs come back with raw `payload_bytes`.
+Decoded types:
+
+- 1004 (extended L1/L2 RTK obs).
+- 1005, 1006 (stationary RTK reference station, with optional antenna
+  height).
+- 1019 (GPS ephemeris subset), 1020 (GLONASS slot / frequency).
+- 1029 (Unicode text string).
+- 1033 (antenna descriptors).
+- 1230 (GLONASS L1/L2 C/A + P code-phase biases).
+- MSM 1/2/3/4/5/6/7 (1074-1134, 1077-1137, ...) — full per-cell
+  decoders covering pseudorange-only, phase-only, mixed, and signal
+  extension variants.
+- SSR family (RTCM 10403.3 §3.5.10): 1057-1068 (GPS + GLONASS) and
+  1240-1263 (Galileo / QZSS / SBAS / BeiDou) for orbit / clock /
+  combined / URA / high-rate-clock / code-bias.
+- IGS-SSR MT 4076 (subtype-dispatched).
+
+Other IDs come back with raw `payload_bytes`.
+
+## SBAS L1
+
+`rinexpy.sbas`:
+
+| function | purpose |
+|---|---|
+| `decode_sbas_message(payload)` | dispatch by MT |
+| `decode_sbas_mt1(payload)` | PRN mask + IODP |
+| `decode_sbas_mt2_5(payload)` | fast pseudorange corrections (13 PRC + UDREI) |
+| `decode_sbas_mt6(payload)` | integrity (51 UDREI + 4 IODF) |
+| `decode_sbas_mt7(payload)` | fast-correction degradation factors |
+| `decode_sbas_mt9(payload)` | GEO ranging (ECEF pos/vel/acc + a_Gf0/1) |
+| `decode_sbas_mt17(payload)` | GEO almanacs (up to 3 entries) |
+| `decode_sbas_mt18(payload)` | iono grid point mask |
+| `decode_sbas_mt24(payload)` | mixed fast + long-term half |
+| `decode_sbas_mt25(payload)` | long-term satellite corrections |
+| `decode_sbas_mt26(payload)` | iono delays for 15 grid points |
+
+Reference: RTCA DO-229E §A.4. Each L1 SBAS message is 250 bits.
 
 `rinexpy.ntrip`:
 
@@ -383,10 +709,15 @@ Good enough for the read-modify-write loop (filter, decimate, re-emit).
 ## CLI
 
 ```sh
-rinexpy read   <file>            # parse and print
-rinexpy times  <file>            # print just epoch timestamps
-rinexpy info   <file>            # parsed header
+rinexpy read   <file>                                   # parse and print
+rinexpy times  <file>                                   # epoch timestamps
+rinexpy info   <file>                                   # parsed header
 rinexpy convert <dir> <glob> --out <dir> [-j WORKERS]   # batch -> NetCDF
+rinexpy spp <obs> <nav>                                 # single-point fix
+rinexpy rtk <rover.obs> <base.obs> <nav>                # RTK baseline
+rinexpy ppp <obs> <sp3> <clk>                           # PPP solve
+rinexpy splice <a.obs> <b.obs> --out <out.obs>          # concat by time
+rinexpy decimate <file.obs> --interval <s>              # interval thin
 ```
 
 All read/convert subcommands accept `-u/--use`, `-m/--meas`,

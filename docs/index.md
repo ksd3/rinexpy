@@ -83,20 +83,35 @@ has the uv install recipe for macOS, Linux, and Windows.
 
 ## Coverage
 
-ASCII formats: RINEX 2, 3, 4 NAV/OBS, NMEA-0183, IGS clock/iono/antex.
+ASCII formats: RINEX 2, 3, 4 NAV/OBS (incl. RINEX 4 STO/EOP/ION),
+NMEA-0183, IGS clock/iono/antex, SINEX-BIAS (DCB / OSB).
 
 Binary: SP3, BINEX, NetCDF, Zarr.
 
-Streaming: RTCM 2.x DGPS, RTCM 3.x with NTRIP.
+Streaming: RTCM 2.x DGPS, RTCM 3.x with NTRIP (sync + asyncio
+`astream`). RTCM3 covers the SSR family (1057-1068, 1240-1263,
+IGS-SSR MT 4076), MSM 1-7, plus the usual base-station + ephemeris
+types. SBAS L1 message types 1, 2-5, 6, 7, 9, 17, 18, 24-26.
 
 Vendor binary: u-blox UBX, Septentrio SBF, NovAtel OEM.
 
-Raw subframes: BeiDou D1/D2 (clock + iono only).
+Raw subframes: GPS LNAV / CNAV (MT 10, 11) / CNAV-2 (subframe 2),
+Galileo F-NAV + I-NAV, GLONASS strings 1-3, NavIC subframes 1+2,
+BeiDou D1/D2.
 
-Math: Keplerian to ECEF, SP3 Lagrange interpolation, single-point
-positioning, RTK with LAMBDA integer fixing (single and dual
-frequency), Klobuchar, Saastamoinen, Niell, VMF1, GPT2w empirical
-met grid.
+Positioning: SPP with optional RAIM, RTK with LAMBDA integer fix,
+sequential RTK with ambiguity carry-over, snapshot SPP (code-phase
+only), VRS synthesis for network RTK, and a static-or-kinematic
+PPP driver that consumes SP3+CLK or RTCM-SSR and wires ANTEX PCV,
+GPT2w+VMF1 troposphere, DCB, and carrier-phase wind-up.
+
+Atmosphere + tides: Klobuchar, Saastamoinen, Niell, VMF1, GPT2w
+empirical met grid; solid-earth, ocean (OTL via BLQ), pole, and
+ocean-pole tides; ECEF/ECI rotation with IERS Bulletin A/C04 EOP.
+
+Stretch: GNSS-R reflector-height retrieval (Larson 2008), antenna
+PCV calibration writer, time-transfer (P3 + common-view), DCB
+autodownload from IGS BKG (post-2017) or AIUB CODE (pre-2017).
 
 The [compatibility table in the README](https://github.com/ksd3/rinexpy#compatibility)
 has the full matrix and notes about what's full vs partial.

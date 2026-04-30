@@ -1,7 +1,7 @@
 # Tutorial
 
-Install to integer-fix RTK in twelve sections. Snippets are meant to
-be pasted into a Python REPL.
+From install to cm-class PPP in fifteen sections. Snippets are meant
+to be pasted into a Python REPL.
 
 ## 1. Install
 
@@ -238,7 +238,116 @@ slant_dry = zhd * m_h
 For coarser work the bare `saastamoinen(el_deg, alt)` (default ICAO
 atmosphere) is enough. At el >= 15° it's accurate to ~1 cm.
 
-## 12. Quality control and bookkeeping
+## 12. Sequential RTK across epochs
+
+`rtk_fix` solves one epoch at a time. For a moving rover you want
+the integer fix to carry across epochs while the SV lock holds, so
+you only pay the LAMBDA search at slip events. `SequentialRTK`
+does that, plus per-SV cycle-slip detection and partial AR when
+the full ratio test fails.
+
+```python
+from rinexpy.rtk import SequentialRTK
+from rinexpy.multifreq import LAMBDA_L1
+
+rtk = SequentialRTK(base_ecef, wavelength=LAMBDA_L1)
+for epoch in epochs:
+    out = rtk.update(svs, rover_pr, base_pr, rover_phase, base_phase, sv_ecef)
+    if out["fixed_accepted"]:
+        print(f"{epoch}  baseline {out['baseline']}  carried {out['carry_over_count']}")
+    else:
+        print(f"{epoch}  partial fix: {out['n_fixed']}/{out['n_total']}")
+```
+
+The acceptance budget from the roadmap was "moving-baseline replay,
+< 5% epoch rejection." The synthetic test in `tests/test_rtk_sequential.py`
+holds zero rejections across 20 epochs.
+
+## 13. Precise point positioning
+
+```python
+from rinexpy.ppp import ppp_solve
+
+obs = rp.load("data/RNX/STAT00BRA_R_20231560000_24H_01S_MO.rnx.gz")
+sp3 = rp.load_sp3("data/SP3/IGS0OPSFIN_20231560000_01D_15M_ORB.SP3")
+clk = rp.load_clk("data/CLK/IGS0OPSFIN_20231560000_01D_30S_CLK.CLK")
+
+out = ppp_solve(obs, sp3, clk, initial_position_ecef=tuple(approx_xyz))
+print("Position (m):", out["position"])
+print("1-sigma (m):  ", out["position_sigma_m"])
+print("Epochs used: ", out["n_epochs"])
+```
+
+The driver auto-picks an L1/L2 obs-code quadruple from the dataset
+(C1C/C2W, C1W/C2W, ...), forms the iono-free combination, masks SVs
+below 7° elevation by default, and pushes each epoch through
+`StaticPPPFilter` (a.k.a. `GNSSFilter`).
+
+For the full correction stack, opt in:
+
+```python
+from rinexpy.antex import find_antenna, load_antex
+from rinexpy.gpt2w import load_gpt2w_grid
+from rinexpy.dcb_download import auto_load_dcb
+
+ant  = find_antenna(load_antex("igs20.atx"), "TRM59800.00     NONE")
+gpt  = load_gpt2w_grid("/path/to/gpt2_5w.grd")
+dcb  = auto_load_dcb(obs.time.values[0].astype("datetime64[D]").astype(object))
+
+out = ppp_solve(
+    obs, sp3, clk,
+    initial_position_ecef=tuple(approx_xyz),
+    antenna=ant,             # ANTEX PCV per SV per frequency
+    gpt2w_grid=gpt,          # VMF1 + GPT2w troposphere (vs Saastamoinen)
+    dcb_records=dcb,         # SINEX OSB satellite + receiver biases
+    apply_wind_up=True,      # Wu 1993 carrier-phase wind-up
+)
+```
+
+When you have a real-time SSR feed instead of CLK, swap them out:
+
+```python
+from rinexpy.ssr import SSRCorrections
+from rinexpy.rtcm3 import iter_messages
+
+with open("ssr-stream.rtcm", "rb") as fp:
+    ssr = SSRCorrections(iter_messages(fp))
+
+out = ppp_solve(obs, sp3, clk=None, ssr=ssr)
+```
+
+`SSRCorrections` absorbs orbit (1057, 1063, 1240, ...), clock (1058,
+1064, 1241, ...), and code-bias (1059, 1065, 1242, ...) messages
+per system. It rotates the RTCM radial/along/cross delta into ECEF
+using each SV's instantaneous frame and extrapolates the clock
+polynomial off the message epoch.
+
+## 14. Raw nav-message decoders
+
+For RXM-SFRBX captures or anyone walking a navigation bitstream:
+
+```python
+from rinexpy.gps_lnav import decode_lnav_subframe1
+from rinexpy.gps_cnav  import decode_cnav_mt10
+from rinexpy.galileo_nav import decode_fnav_page1, decode_inav_word4
+from rinexpy.glonass    import decode_glonass_string1
+from rinexpy.navic      import decode_navic_subframe1
+from rinexpy.sbas       import decode_sbas_message
+from rinexpy.beidou     import decode_d1_subframe1
+from rinexpy.nav4       import load_nav4
+
+# Each takes the raw bit-packed bytes for its message and returns
+# a dict with the documented field set per ICD.
+clock = decode_cnav_mt10(rxm_sfrbx_payload_for_mt10)
+print(clock["a_f0_s"], clock["URA_index"], clock["t_oc_s"])
+
+# RINEX 4 NAV STO/EOP/ION records:
+n4 = load_nav4("BRDC00WRD_S_20231560000_01D_MN.rnx")
+for sto in n4["STO"]:
+    print(sto["sv"], sto["message_type"], sto["A0_s"])
+```
+
+## 15. Quality control and bookkeeping
 
 ```python
 from rinexpy.tools import validate_file, concat_files, diff_datasets
@@ -260,9 +369,11 @@ if not delta["equal"]:
 
 ## What next?
 
-- `examples/` has 8 runnable scripts covering each workflow above in
+- `examples/` has runnable scripts covering each workflow above in
   more depth.
-- `COOKBOOK.md` has short recipes for common one-liners.
+- `COOKBOOK.md` has short recipes for common one-liners — including
+  PPP, SSR, sequential RTK, snapshot SPP, VRS, GNSS-R, and antenna
+  PCV calibration.
 - `API.md` is the per-symbol reference for everything exported.
 - `OPTIMIZATIONS.md` and `BENCHMARKS.md` cover the performance story
   relative to georinex.

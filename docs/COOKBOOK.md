@@ -334,6 +334,160 @@ print("Fixed N2:", out["N_L2"])
 print("Fraction fixed:", out["fraction_fixed"])
 ```
 
+### SPP with RAIM fault detection
+
+`raim=True` runs a chi-squared residual test after each fix and
+excludes the worst SV until the test passes (or `max_exclusions`
+runs out).
+
+```python
+sol = rp.spp_solve(sv_ecef, pseudoranges_m,
+                   raim=True, sigma_pr=5.0, p_fa=1e-4)
+if sol["fault_detected"]:
+    print("excluded:", sol["excluded_svs"])
+print("lla:", sol["lla"])
+```
+
+### SPP with DCB or broadcast TGD applied
+
+```python
+from rinexpy.dcb import read_bsx
+from rinexpy.positioning import tgd_from_nav
+
+# Either SINEX-BIAS DCBs:
+records = read_bsx("CAS0MGXRAP_20231560000_01D_01D_DCB.BSX")
+sol = rp.spp_solve(
+    sv_ecef, pseudoranges_m,
+    sv_labels=["G05", "G10", ...],
+    dcb_records=records,
+    dcb_obs_code="C1W",
+)
+
+# Or broadcast TGD pulled from the NAV file:
+nav = rp.load("brdc2800.15n")
+tgd = tgd_from_nav(nav, epoch)
+sol = rp.spp_solve(sv_ecef, pseudoranges_m,
+                   sv_labels=sv_labels, tgd_map=tgd, tgd_gamma=1.0)
+```
+
+### Sequential RTK with ambiguity carry-over
+
+Re-uses the integer fix across epochs while the per-SV lock holds.
+Drops the lock and re-bootstraps on detected cycle slips.
+
+```python
+from rinexpy.rtk import SequentialRTK
+from rinexpy.multifreq import LAMBDA_L1
+
+rtk = SequentialRTK(base_ecef, wavelength=LAMBDA_L1)
+for epoch in epochs:
+    out = rtk.update(svs, rover_pr, base_pr, rover_phase, base_phase, sv_ecef)
+    record(epoch, out["baseline"], out["fixed_accepted"], out["slipped_svs"])
+```
+
+## Precise positioning (PPP)
+
+### One-shot static PPP from SP3 + CLK
+
+```python
+from rinexpy.ppp import ppp_solve
+
+out = ppp_solve(obs, sp3, clk,
+                initial_position_ecef=tuple(approx_xyz),
+                elevation_mask_deg=7.0)
+print(out["position"], "+/-", out["position_sigma_m"])
+```
+
+### PPP with the full correction stack
+
+```python
+from rinexpy.antex import find_antenna, load_antex
+from rinexpy.gpt2w import load_gpt2w_grid
+from rinexpy.dcb_download import auto_load_dcb
+
+ant = find_antenna(load_antex("igs20.atx"), "TRM59800.00     NONE")
+gpt = load_gpt2w_grid("/path/to/gpt2_5w.grd")
+dcb = auto_load_dcb(obs.time.values[0].astype("datetime64[D]").astype(object))
+
+out = ppp_solve(
+    obs, sp3, clk,
+    initial_position_ecef=tuple(approx_xyz),
+    antenna=ant,
+    gpt2w_grid=gpt,
+    dcb_records=dcb,
+    apply_wind_up=True,
+)
+```
+
+### PPP with SSR replacing CLK
+
+```python
+from rinexpy.ssr import SSRCorrections
+from rinexpy.rtcm3 import iter_messages
+
+with open("ssr-stream.rtcm", "rb") as fp:
+    ssr = SSRCorrections(iter_messages(fp))
+
+out = ppp_solve(obs, sp3, clk=None, ssr=ssr)
+```
+
+`SSRCorrections` consumes orbit + clock + code-bias messages across
+all six constellations and exposes per-(sv, epoch, obs_code) lookups
+to the driver.
+
+## Stretch positioning
+
+### Snapshot SPP for a < 1 s capture
+
+For IoT receivers that have a coarse prior (~30 km, e.g. cell-tower
+geolocation) and only see fractional-chip code phase. van Diggelen
+A-GPS pattern.
+
+```python
+from rinexpy.snapshot import snapshot_positioning
+
+out = snapshot_positioning(
+    code_phase_chips,           # (n_sv,)  fractional 0..1023
+    sv_positions_ecef,          # (n_sv, 3) at signal-emission time
+    initial_position_ecef=prior,
+)
+print(out["lla"], out["time_bias_s"])
+```
+
+### Virtual reference station from a network
+
+Compose observations from N base stations into a virtual base
+co-located with the rover's approximate position. The rover then
+runs ordinary single-baseline RTK against the synthesized base.
+
+```python
+from rinexpy.vrs import synthesize_vrs
+from rinexpy.rtk import rtk_fix
+from rinexpy.multifreq import LAMBDA_L1
+
+vrs = synthesize_vrs(bases, rover_approx_pos, wavelength=LAMBDA_L1)
+sol = rtk_fix(
+    rover_pr, vrs["pr"],
+    rover_phase, vrs["phase"],
+    vrs["sv_positions"], vrs["base_position"],
+    wavelength=LAMBDA_L1,
+)
+```
+
+### GNSS-R sea-surface reflector height (Larson 2008)
+
+SNR oscillations versus sin(elev) are detrended and a Lomb-Scargle
+periodogram converts the peak frequency to reflector height.
+
+```python
+from rinexpy.gnssr import snr_to_sea_height
+from rinexpy.multifreq import LAMBDA_L1
+
+out = snr_to_sea_height(snr_db, elevation_rad,
+                        wavelength_m=LAMBDA_L1)
+print("reflector height:", out["height_m"], "m")
+```
+
 ## Plotting
 
 ### L1 phase time series
@@ -485,6 +639,123 @@ print(f"BDS week {nav['week']}, t_oc {nav['t_oc_s']} s, "
       f"a0 {nav['a0_s']:e}")
 ```
 
+### GPS CNAV / CNAV-2 / Galileo F+I-NAV / GLONASS / NavIC
+
+Same pattern: feed the message body's bytes, get a dict per ICD.
+
+```python
+from rinexpy.gps_cnav    import decode_cnav_message
+from rinexpy.gps_cnav2   import decode_cnav2_subframe2
+from rinexpy.galileo_nav import decode_fnav_page1, decode_inav_word1
+from rinexpy.glonass     import decode_glonass_string
+from rinexpy.navic       import decode_navic_subframe
+
+print(decode_cnav_message(cnav_bytes))         # MT 10 / 11 dispatched
+print(decode_cnav2_subframe2(cnav2_sf2_bytes)) # L1C subframe 2
+print(decode_fnav_page1(fnav_page1_bytes))     # Galileo E5a F-NAV
+print(decode_inav_word1(inav_word1_bytes))     # Galileo E1B/E5b I-NAV
+print(decode_glonass_string(glo_string_bytes)) # GLONASS string 1/2/3
+print(decode_navic_subframe(navic_sf_bytes))   # NavIC SF 1/2 + raw SF 3/4
+```
+
+### SBAS L1 (WAAS / EGNOS / MSAS / GAGAN)
+
+`decode_sbas_message` walks one 250-bit SBAS L1 message and dispatches
+on the 6-bit MT field. Unknown MTs return `{preamble, msg_type, raw}`.
+
+```python
+from rinexpy.sbas import decode_sbas_message
+
+for msg_bytes in iter_sbas_messages_from_capture():
+    out = decode_sbas_message(msg_bytes)
+    if out["msg_type"] == 9:                         # GEO ranging
+        print(out["x_m"], out["y_m"], out["z_m"], out["a_Gf0_s"])
+```
+
+### RTCM3 SSR feed
+
+`SSRCorrections` absorbs every kind of SSR message (orbit, clock,
+code-bias, combined) and exposes per-(sv, epoch) corrections.
+
+```python
+from rinexpy.ssr import SSRCorrections
+from rinexpy.rtcm3 import iter_messages
+
+with open("ssr-feed.rtcm", "rb") as fp:
+    ssr = SSRCorrections(iter_messages(fp))
+
+print("SVs with corrections:", ssr.known_satellites())
+print("G05 clock at SOW 86400 s:", ssr.clock_correction_s("G05", 86400.0), "s")
+print("G05 C1W code bias:", ssr.code_bias_m("G05", "C1W"), "m")
+```
+
+### RINEX 4 NAV: STO / EOP / ION records
+
+```python
+from rinexpy.nav4 import load_nav4
+
+out = load_nav4("BRDC00WRD_S_20231560000_01D_MN.rnx")
+for sto in out["STO"]:
+    print(sto["sv"], sto["message_type"], sto["A0_s"])
+for ion in out["ION"]:
+    if ion["model"] == "KLOB":
+        print("Klobuchar alpha:", ion["alpha"], "beta:", ion["beta"])
+```
+
+## Atmosphere + corrections
+
+### Autodownload a daily DCB product
+
+Routes by date: post-2017 dates pull the MGEX CAS Rapid SINEX-BIAS
+from the IGS BKG public mirror; pre-2017 dates pull the AIUB CODE
+monthly P1-P2 / P1-C1 / P2-C2 files. Both paths return records with
+the same `read_bsx`-shaped schema.
+
+```python
+from datetime import datetime
+from rinexpy.dcb_download import auto_load_dcb, download_dcb
+
+records = auto_load_dcb(datetime(2024, 4, 15))  # CAS daily MGEX
+records = auto_load_dcb(datetime(2010, 6, 15))  # CODE monthly P1-P2
+
+# Or fetch only (path returned, parse later):
+path = download_dcb(datetime(2024, 4, 15), product="CAS")
+```
+
+Files are cached under `~/.cache/rinexpy/dcb/`. CDDIS source is wired
+but needs NASA Earthdata Login in `~/.netrc`.
+
+### Calibrate an ANTEX PCV from residuals
+
+Fit a 2-D phase-center grid from post-fit residuals tagged with
+elevation + azimuth, and write a valid ANTEX file that round-trips
+through `load_antex`.
+
+```python
+from rinexpy.antex_calibrate import calibrate_pcv, write_antex
+
+entry = calibrate_pcv(
+    residuals_m, elevation_rad, azimuth_rad,
+    antenna_type="MYANT_NONE",
+    serial="SN001",
+)
+write_antex([entry], "my-antenna.atx")
+```
+
+### Time transfer between two stations
+
+```python
+from rinexpy.time_transfer import p3_combination, common_view_difference
+
+# Iono-free P3 combination from L1/L2 pseudoranges:
+p3 = p3_combination(p1_m, p2_m)
+
+# Common-view: stations A and B observing the same SV at the same epoch.
+# After cancelling SV clock + iono, the difference is approximately the
+# A-B receiver-clock difference (plus tropo gradient + multipath).
+delta_dt = common_view_difference(p3_A, p3_B, rho_A, rho_B)
+```
+
 ## QC + tooling
 
 ### Quick QC report
@@ -516,8 +787,13 @@ for p in Path("data/").glob("*.rnx.gz"):
 ## CLI shortcuts
 
 ```sh
-rinexpy info file.18o                # parsed header
-rinexpy times file.18o               # epoch list
-rinexpy read file.18o                # parse + print
-rinexpy convert data/ '*.18o' --out out/ -j 4
+rinexpy info file.18o                          # parsed header
+rinexpy times file.18o                         # epoch list
+rinexpy read file.18o                          # parse + print
+rinexpy convert data/ '*.18o' --out out/ -j 4  # batch -> NetCDF
+rinexpy spp file.18o file.18n                  # single-point fix
+rinexpy rtk rover.obs base.obs nav.nav         # RTK baseline
+rinexpy ppp obs.rnx sp3 clk                    # PPP solve
+rinexpy splice a.obs b.obs --out joined.obs    # concat by time
+rinexpy decimate file.obs --interval 30        # interval thin
 ```
