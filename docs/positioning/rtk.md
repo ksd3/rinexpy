@@ -11,7 +11,7 @@ When the ambiguity is fixed to its true integer value, the baseline is
 centimetre-class. When it cannot be fixed (weak geometry, high noise,
 recently slipped lock), the float-ambiguity solution is decimetre-class.
 
-rinexpy ships three layers: `double_difference_solve` for the float
+`rinexpy` includes three layers: `double_difference_solve` for the float
 solution, `rtk_fix` for one-shot LAMBDA integer fixing, and
 `SequentialRTK` for multi-epoch RTK with ambiguity carry-over.
 
@@ -252,7 +252,7 @@ The wavelengths are exposed as constants:
 Modern receivers tracking L1 + L2 + L5 (or E1 + E5a + E5b for Galileo) can
 use Three-Carrier Ambiguity Resolution (TCAR). The extra-wide-lane
 combination on L2 - L5 has a wavelength of nearly 6 metres, so the integer
-ambiguity is essentially noise-free.
+ambiguity is noise-free.
 
 ```python
 from rinexpy.multifreq import tcar_resolve

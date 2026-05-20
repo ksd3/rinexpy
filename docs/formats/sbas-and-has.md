@@ -175,7 +175,7 @@ with open("rtcm-stream.rtcm3", "rb") as fp:
 
 ## Storing the corrections live
 
-The `RealtimeOrbitClock` cache in `rinexpy.realtime` absorbs SBAS, SSR,
+The `RealtimeOrbitClock` cache in `rinexpy.realtime` takes in SBAS, SSR,
 and HAS messages together, plus broadcast ephemerides from RINEX 3 NAV.
 The cache picks the freshest valid correction per satellite when
 queried.
@@ -198,7 +198,7 @@ clock_s = cache.apply_clock_correction(prn=5, broadcast_clock_s=clock0_s)
 ```
 
 The page on [real-time PPP](../positioning/realtime.md) walks through the
-end-to-end NTRIP pipeline that drives this.
+end-to-end NTRIP pipeline that powers this.
 
 ## Related pages
 

@@ -7,7 +7,7 @@ The neutral delay is non-dispersive and adds roughly 2-10 metres at zenith. The
 ionospheric delay is dispersive (frequency-dependent) and ranges from
 1 metre at quiet times to 50 metres during a solar storm.
 
-rinexpy ships the standard four-model family for the troposphere and
+`rinexpy` includes the standard four-model family for the troposphere and
 three independent tools for the ionosphere.
 
 ## Troposphere
@@ -116,9 +116,9 @@ returns:
 | `T_lapse` | K/km | tropospheric lapse rate |
 | `undulation_m` | metres | geoid undulation above WGS-84 |
 
-The grid is roughly 2 MB and lives at the
-[Vienna VMF Data Server](https://vmf.geo.tuwien.ac.at/codes/). rinexpy
-does not ship the grid; the user downloads it once.
+The grid is roughly 2 MB and is at the
+[Vienna VMF Data Server](https://vmf.geo.tuwien.ac.at/codes/). `rinexpy`
+does not release the grid; the user downloads it once.
 
 ```python
 from rinexpy.gpt2w import load_gpt2w_grid, gpt2w
@@ -140,7 +140,7 @@ The classic PPP tropospheric chain is:
 2. Compute the zenith hydrostatic delay with Saastamoinen.
 3. Compute the wet mapping factor with VMF1.
 4. The total slant delay is `ZHD * m_h + ZWD * m_w`, where ZWD is either
-   estimated by the Kalman filter or supplied externally.
+ estimated by the Kalman filter or supplied externally.
 
 ```python
 from rinexpy.gpt2w import load_gpt2w_grid, gpt2w
@@ -230,7 +230,7 @@ IONEX products are accurate to roughly 2 TECU (~30 cm on L1).
 ### Iono-free combination
 
 For dual-frequency receivers the iono-free combination removes the
-first-order ionospheric delay analytically. This is the foundation of PPP
+first-order ionospheric delay analytically. The foundation of PPP
 and geodetic-class processing.
 
 ```python

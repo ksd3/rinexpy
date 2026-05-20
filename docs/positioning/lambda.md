@@ -6,7 +6,7 @@ ambiguities of an RTK or PPP solution to their true integer values. With
 the integers fixed, the baseline (RTK) or position (PPP) snaps to its
 centimetre-class form.
 
-rinexpy ships the single-frequency LAMBDA in `rinexpy.lambda_ar` and the
+`rinexpy` includes the single-frequency LAMBDA in `rinexpy.lambda_ar` and the
 dual-frequency LAMBDA-style fix (via wide-lane / narrow-lane) in
 `rinexpy.multifreq`.
 
@@ -25,21 +25,21 @@ prunes by the running best squared residual.
 The procedure inside `lambda_resolve`:
 
 1. **LDL decomposition.** Factor `Q = L D L'`. The lower-triangular `L`
-   captures the correlations; the diagonal `D` is the variance of each
-   decorrelated ambiguity.
+ captures the correlations; the diagonal `D` is the variance of each
+ decorrelated ambiguity.
 
 2. **Bootstrap.** Round `â` to integers in the decorrelated frame, one
-   ambiguity at a time, applying each integer correction to the
-   subsequent float ambiguities. The result is a candidate integer
-   vector that is usually close to the true solution.
+ ambiguity at a time, applying each integer correction to the
+ subsequent float ambiguities. The result is a candidate integer
+ vector that is usually close to the true solution.
 
 3. **Integer least squares.** A branch-and-bound search around the
-   bootstrap finds the `n_cands` best integer vectors by squared
-   residual.
+ bootstrap finds the `n_cands` best integer vectors by squared
+ residual.
 
 4. **Ratio test.** Accept the best candidate if `sq_errors[1] /
-   sq_errors[0] >= ratio_threshold`. The conservative default for the
-   threshold is 3.0.
+ sq_errors[0] >= ratio_threshold`. The conservative default for the
+ threshold is 3.0.
 
 ## Single-frequency LAMBDA
 
@@ -103,7 +103,7 @@ except ILSAborted as e:
 ```
 
 For RTK and PPP applications the default `max_nodes` is high enough that
-the limit is essentially never hit. For high-dimensional problems
+the limit is never hit. For high-dimensional problems
 (50+ ambiguities) the limit becomes load-bearing and tuning matters.
 
 ## Dual-frequency LAMBDA via WL+NL
@@ -172,7 +172,7 @@ n1, n2 = split_wl_into_l1_l2(n_wl, n_nl)
 
 For receivers tracking L1 + L2 + L5 (or E1 + E5a + E5b for Galileo), the
 extra-wide-lane combination on L2 - L5 has a wavelength of nearly 6 metres.
-The WL ambiguity is essentially noise-free, and constraints propagate
+The WL ambiguity is noise-free, and constraints propagate
 forward to fix N_WL and N_L1.
 
 ```python
@@ -222,7 +222,7 @@ Frequencies:
 
 ## The ratio test
 
-The conservative default `ratio_threshold=3.0` is the textbook Teunissen
+The conservative default `ratio_threshold=3.0` is the standard Teunissen
 threshold and is what real-time RTK receivers use. Lower thresholds (2.0)
 accept more fixes but risk wrong-integer fixes; higher thresholds (5.0)
 reject more fixes but rarely accept a wrong one.

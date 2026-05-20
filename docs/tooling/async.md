@@ -1,6 +1,6 @@
 # Async loading
 
-For `asyncio`-based applications, rinexpy ships thread-pool wrappers
+For `asyncio`-based applications, `rinexpy` includes thread-pool wrappers
 around the synchronous loaders. They live in `rinexpy.asyncio`.
 
 The wrappers do not parallelise the parsing itself; the GIL is released

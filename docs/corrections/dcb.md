@@ -16,7 +16,7 @@ data:
 | Daily IGS / MGEX SINEX-BIAS | per-(SV, code), per-day | post-2017 |
 | Monthly CODE DCB | per-(SV, code), per-month | 1994 onwards (mostly pre-2017) |
 
-rinexpy reads all three and exposes a unified application API.
+`rinexpy` reads all three and exposes a unified application API.
 
 ## Broadcast TGD
 
@@ -159,7 +159,7 @@ path = download_dcb(datetime(2024, 4, 15), product="CAS")
 - Pre-2017: AIUB FTP, monthly CODE P1-P2 file.
 - 2017 onwards: IGS BKG public mirror, daily CAS Rapid MGEX SINEX-BIAS.
 
-Files are cached under `~/.cache/rinexpy/dcb/`. The CDDIS source is wired
+Files are cached under `~/.cache/rinexpy/dcb/`. The CDDIS source is connected
 but requires a NASA Earthdata Login in `~/.netrc`. The AIUB and BKG
 mirrors are anonymous HTTP.
 
@@ -192,7 +192,7 @@ path = download_legacy_code_dcb(datetime(2010, 6, 15), product="P1P2")
 records = load_monthly_code_dcb(datetime(2010, 6, 15), product="P1P2")
 ```
 
-The combined call (`auto_load_dcb`) dispatches to the legacy reader for
+The combined call (`auto_load_dcb`) calls the legacy reader for
 pre-2017 dates automatically.
 
 ## Use in positioning

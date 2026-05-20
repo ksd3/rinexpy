@@ -2,22 +2,24 @@
 
 A fast RINEX reader for Python that grew into a GNSS toolkit.
 
-Started as a fork of [georinex](https://github.com/geospace-code/georinex)
+`rinexpy` is a fork of [georinex](https://github.com/geospace-code/georinex)
 with the OBS3 and NAV3 readers rewritten. Upstream builds an
 `xarray.Dataset` per epoch and merges them, which is O(N²) in epoch
-count. rinexpy fills a NumPy buffer in one pass and builds the
-Dataset once at the end. On the shared corpus this works out to
-13-33× faster on RINEX-3 NAV/OBS (see [BENCHMARKS.md](docs/BENCHMARKS.md)).
+count. `rinexpy` fills a NumPy buffer in one pass and builds the
+Dataset once at the end. On the shared corpus that is 13-33× faster
+on RINEX-3 NAV/OBS (see [docs/internals/benchmarks.md](docs/internals/benchmarks.md)).
 
-Other things landed on top: SP3, CLK, IONEX, ANTEX readers; RTCM 2
-and 3 (including the full SSR family) with NTRIP, sync and async;
-vendor binary formats (UBX, SBF, NovAtel, BINEX, NMEA-0183); raw
-nav-message decoders for GPS LNAV/CNAV/CNAV-2, Galileo F-NAV/I-NAV,
-GLONASS strings, NavIC, BeiDou D1/D2, and the SBAS L1 stream; SPP
-with RAIM, RTK with LAMBDA integer fixing plus a sequential variant
-with ambiguity carry-over, a static-or-kinematic EKF, and a PPP
-driver that wires SP3+CLK (or RTCM-SSR), ANTEX PCV, GPT2w+VMF1
-troposphere, DCB, and carrier-phase wind-up into one call.
+On top of the readers, `rinexpy` includes:
+
+- SP3, CLK, IONEX, ANTEX readers.
+- RTCM 2 and 3 (including the full SSR family) with NTRIP, sync and async.
+- Vendor binary formats: UBX, SBF, NovAtel, BINEX, NMEA-0183.
+- Raw nav-message decoders for GPS LNAV / CNAV / CNAV-2, Galileo F-NAV /
+  I-NAV, GLONASS strings, NavIC, BeiDou D1 / D2, and the SBAS L1 stream.
+- SPP with RAIM, RTK with LAMBDA integer fixing plus a sequential variant
+  with ambiguity carry-over, a static-or-kinematic EKF, and a PPP driver
+  that combines SP3+CLK (or RTCM-SSR), ANTEX PCV, GPT2w+VMF1 troposphere,
+  DCB, and carrier-phase wind-up into one call.
 
 ```python
 import rinexpy as rp
@@ -28,7 +30,7 @@ obs.sel(sv="G07").C1C
 
 ## Install
 
-rinexpy isn't on PyPI. Clone it and let `uv` handle the rest.
+`rinexpy` isn't on PyPI. Clone it and let `uv` handle the rest.
 
 First, install `uv` if you don't have it:
 
@@ -295,7 +297,7 @@ uv run mkdocs build    # static site under site/
 
 ## Citation
 
-If you use rinexpy in academic work please also cite the upstream
+If you use `rinexpy` in academic work please also cite the upstream
 georinex for the original readers:
 [doi:10.5281/zenodo.2580306](https://doi.org/10.5281/zenodo.2580306).
 

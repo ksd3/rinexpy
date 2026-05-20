@@ -1,6 +1,6 @@
 # Contributing
 
-What you need to know to get from a fresh clone to a merged PR.
+What you need to know to get from a new clone to a merged PR.
 
 ## Quick start
 
@@ -38,7 +38,7 @@ rinexpy/
 ```
 
 The [Architecture](../internals/architecture.md) page has a per-module
-table if you are hunting for where a feature lives.
+table if you are hunting for where a feature is here.
 
 ## Development workflow
 
@@ -111,11 +111,11 @@ Scopes: the module name (`io`, `version`, `time`, `headers`, `nav2`,
 Rules:
 
 - Each commit lands one cohesive change. Many small commits are better
-  than one big one. `git log --oneline` should read like a plan.
+ than one big one. `git log --oneline` should read like a plan.
 - No skipping pre-commit hooks (`--no-verify`) or signing
-  (`--no-gpg-sign`).
+ (`--no-gpg-sign`).
 - When a perf change needs a rewrite, the perf commit is the rewrite.
-  No separate "refactor + perf" pair.
+ No separate "refactor + perf" pair.
 
 Examples from the repo:
 
@@ -148,47 +148,47 @@ most recent one is the fastest path. Roughly:
 
 1. New module at `src/rinexpy/myformat.py`.
 2. Public entry: `iter_messages(stream)` for streaming feeds, or
-   `load_X(fn)` returning an `xarray.Dataset` for archival formats.
+ `load_X(fn)` returning an `xarray.Dataset` for archival formats.
 3. Tests at `tests/test_myformat.py`. Synthesise fixtures inline if you
-   cannot find a small public sample.
+ cannot find a small public sample.
 4. Document on its own page under `docs/formats/`.
 5. Add a row to the README compatibility table.
 6. Add a recipe to `docs/cookbook.md` (3-5 lines).
 7. Re-export the public symbols from `src/rinexpy/__init__.py` and
-   add them to the module index page.
+ add them to the module index page.
 
 ## Releasing (maintainers only)
 
-rinexpy is local-only. There is no PyPI publish step. A "release" is a
+`rinexpy` is local-only. There is no PyPI publish step. A "release" is a
 tagged commit on `main` plus a built wheel under `dist/`.
 
 1. Update `CHANGELOG.md`: move `## [Unreleased]` content into a new
-   dated `## [X.Y.Z]` section.
+ dated `## [X.Y.Z]` section.
 2. Bump `__version__` in `src/rinexpy/__init__.py` and the `version`
-   field in `pyproject.toml`. If the matching `rinexpy-native`
-   extension also changed, bump `native/pyproject.toml` and
-   `native/python/rinexpy_native/__init__.py` too.
+ field in `pyproject.toml`. If the matching `rinexpy-native`
+ extension also changed, bump `native/pyproject.toml` and
+ `native/python/rinexpy_native/__init__.py` too.
 3. Commit with `chore: release X.Y.Z`.
 4. Tag: `git tag -s vX.Y.Z -m "vX.Y.Z"`.
 5. Push: `git push origin main --tags`.
 6. Build the wheel and sdist so users cloning at the tag can install
-   without rebuilding:
+ without rebuilding:
    ```sh
    uv build --wheel --sdist
    ```
-   Artefacts land under `dist/`. Attach them to the GitHub Release
-   manually if you want a downloadable wheel.
+ Artefacts land under `dist/`. Attach them to the GitHub Release
+ manually if you want a downloadable wheel.
 7. Edit the auto-created GitHub Release to paste the changelog
-   excerpt as the release notes.
+ excerpt as the release notes.
 
 ## Reporting bugs
 
 - RINEX or binary parsing bugs: attach a minimal file that reproduces
-  the issue (or a 1 KB excerpt). Most bugs in this space come from
-  real-world files that violate the spec in surprising ways.
+ the issue (or a 1 KB excerpt). Most bugs in this space come from
+ real-world files that violate the spec in surprising ways.
 - Positioning or RTK bugs: include the input pseudoranges, satellite
-  ECEFs, and expected output. A `tests/test_*` snippet that fails is
-  ideal.
+ ECEFs, and expected output. A `tests/test_*` snippet that fails is
+ ideal.
 - Perf regressions: include `bench_obs3.py` output before and after.
 
 ## Code of conduct

@@ -1,13 +1,13 @@
 # Network RTK and VRS
 
-A single-baseline RTK fix breaks down past roughly ten kilometres. Beyond
+A single-baseline RTK fix fails past roughly ten kilometres. Beyond
 that, the residual ionospheric and tropospheric errors do not cancel in
 the double-difference, and the integer ambiguity becomes biased. Network
 RTK is the standard fix: a network of reference stations characterises
 the spatial gradient of the atmosphere, and the rover gets a tailored
 correction at its own position.
 
-rinexpy ships two paths into network RTK. `synthesize_vrs` builds a
+`rinexpy` includes two paths into network RTK. `synthesize_vrs` builds a
 Virtual Reference Station (VRS) at the rover's approximate position
 from a network of bases. `network_dd_solve` and `network_dd_solve_ar`
 do a joint multi-baseline solve directly.
@@ -63,15 +63,15 @@ The `vrs` dict has:
 The synthesiser walks the satellite list. For each satellite, it computes
 the per-base double-difference residual (relative to the network's first
 station), fits a plane in the network coordinates, and evaluates the plane
-at the rover's approximate position. The plane fit absorbs the spatial
+at the rover's approximate position. The plane fit takes in the spatial
 gradient of the atmosphere; once subtracted, the rover's single-baseline
-RTK against the synthesised base sees an essentially "short-baseline"
+RTK against the synthesised base sees an "short-baseline"
 atmosphere.
 
 `synthesize_vrs` needs at least three reference stations. With more, the
 plane is over-determined and the least-squares fit is robust to noise.
 
-For the absorbed-error model and Wanninger's original paper, see Wanninger
+For the taken in-error model and Wanninger's original paper, see Wanninger
 (2002).
 
 ## Network double-difference
@@ -151,7 +151,7 @@ NTRIP mountpoint. The receiver sends a `$GGA` NMEA sentence with its
 approximate position, the caster computes the VRS observations server-side,
 and the receiver sees what looks like a short-baseline single reference.
 
-rinexpy's NTRIP client supports this pattern. After opening the stream,
+`rinexpy`'s NTRIP client supports this pattern. After opening the stream,
 push a NMEA `$GPGGA` sentence with the rover's approximate position to
 the caster every couple of seconds.
 
@@ -176,9 +176,9 @@ without a network, the alternative is to estimate the residual
 atmospheric delay as part of the filter state. The
 `StaticPPPFilterMultiGNSS` and `StaticPPPFilterZTD` filters do that for
 PPP; the equivalent for DD is an ambiguity-+- ZWD joint solve, which
-rinexpy does not currently expose as a one-call helper.
+`rinexpy` does not currently expose as a one-call helper.
 
-For most users the VRS path is the right answer until the baselines
+For most users the VRS path is the standard choice until the baselines
 exceed roughly 70 km.
 
 ## Related pages

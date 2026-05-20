@@ -8,10 +8,10 @@ publishes daily, derived from VLBI, SLR, GNSS, and DORIS observations.
 For sub-centimetre PPP, EOP are needed by:
 
 - The ECEF/ECI rotation used by the solid-Earth tide model.
-- The polar motion that drives the pole tide and ocean pole tide.
+- The polar motion that controls the pole tide and ocean pole tide.
 - The UT1-UTC offset for any computation that needs sidereal time.
 
-rinexpy's EOP reader is in `rinexpy.eop`.
+`rinexpy`'s EOP reader is in `rinexpy.eop`.
 
 ## The IERS EOP C04 file
 
@@ -142,10 +142,10 @@ absolute time tagging but cancels in differential workflows.
 The IERS publishes:
 
 - **Bulletin A:** daily, with predictions out 1 year. Accuracy at the
-  prediction horizon is roughly 0.1 mas in polar motion and 0.0001 s in
-  UT1-UTC.
+ prediction horizon is roughly 0.1 mas in polar motion and 0.0001 s in
+ UT1-UTC.
 - **EOP 14 C04:** the smoothed solution, updated every 5 days, ~7-10
-  days lagged. Accuracy is roughly 0.05 mas in polar motion.
+ days lagged. Accuracy is roughly 0.05 mas in polar motion.
 
 For real-time PPP, Bulletin A is the right source. For final PPP, EOP
 C04 is the standard.

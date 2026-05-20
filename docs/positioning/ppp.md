@@ -11,7 +11,7 @@ minutes of dual-frequency observations. A kinematic receiver tracks to a
 few centimetres in real time after convergence. With integer ambiguity
 resolution (PPP-AR) the convergence drops to roughly fifteen minutes.
 
-The headline PPP driver in `rinexpy.ppp.ppp_solve` composes every layer
+The main PPP driver in `rinexpy.ppp.ppp_solve` combines every layer
 into one call. Underneath, the `kalman` module exposes the EKF directly
 for custom workflows.
 
@@ -83,24 +83,24 @@ out = ppp_solve(
 The corrections compose like this inside the driver:
 
 1. Per epoch and per satellite, interpolate the SP3 orbit and the CLK
-   clock at the signal-emission time (with light-time + Earth-rotation
-   correction).
+ clock at the signal-emission time (with light-time + Earth-rotation
+ correction).
 2. If `antenna=` is supplied, apply the ANTEX PCV correction per
-   satellite per band.
+ satellite per band.
 3. If `dcb_records=` is supplied, look up the satellite (and receiver, if
-   `station_id` is set) observable-specific bias for each pseudorange
-   and subtract it.
+ `station_id` is set) observable-specific bias for each pseudorange
+ and subtract it.
 4. If `gpt2w_grid=` is supplied, evaluate GPT2w at the receiver's
-   approximate position to get `(P, T, e, a_h, a_w)`. Use Saastamoinen
-   for the zenith hydrostatic delay and VMF1 for the mapping factor.
-   Otherwise fall back to Saastamoinen with standard atmosphere and
-   Niell mapping.
+ approximate position to get `(P, T, e, a_h, a_w)`. Use Saastamoinen
+ for the zenith hydrostatic delay and VMF1 for the mapping factor.
+ Otherwise fall back to Saastamoinen with standard atmosphere and
+ Niell mapping.
 5. If `apply_wind_up=True`, accumulate the Wu et al. 1993 carrier-phase
-   wind-up correction per satellite.
+ wind-up correction per satellite.
 6. Form the iono-free combinations of the corrected pseudorange and the
-   carrier phase.
+ carrier phase.
 7. Feed the per-epoch measurements into `StaticPPPFilter` (the EKF; see
-   below).
+ below).
 
 ## Real-time PPP with SSR
 
@@ -172,7 +172,7 @@ older code.
 
 ## Slip-aware updates
 
-`update_with_slip_check` is the textbook recipe for kinematic PPP: detect
+`update_with_slip_check` is the standard recipe for kinematic PPP: detect
 cycle slips via the inter-epoch geometry-free combination, drop the
 ambiguity state for any slipped satellite, then apply the normal update.
 
@@ -197,7 +197,7 @@ favours fewer false positives.
 
 The standard `StaticPPPFilter` lumps all satellites into one state vector
 and uses one receiver-clock bias. For multi-constellation work, each
-constellation has its own inter-system bias (ISB), and the right thing is
+constellation has its own inter-system bias (ISB), and the standard choice is
 to estimate one ISB per non-GPS constellation.
 
 ```python
@@ -241,7 +241,7 @@ ekf.update(sv_ecef, sat_clock, pr_if, phase_if, wet_mapping_per_sv)
 print(ekf.zwd_m, "+/-", ekf.zwd_sigma_m)
 ```
 
-ZWD estimation is the right move for stationary geodetic-class deployments
+ZWD estimation is the standard move for stationary geodetic-class deployments
 that need the meteorological observable, or for any kinematic platform
 flying through a non-uniform troposphere.
 
@@ -277,7 +277,7 @@ print("baseline:  ", fusion.baseline_km, "km")
 ```
 
 The RTK weight goes to zero past a few tens of kilometres; the fusion
-estimate is then essentially PPP.
+estimate is then PPP.
 
 ## Static-batch PPP with integer fixing
 
@@ -323,7 +323,7 @@ of the residual norm.
 
 ## PPP convergence
 
-The headline timeline for a static receiver tracking GPS + Galileo at 1 Hz:
+The main timeline for a static receiver tracking GPS + Galileo at 1 Hz:
 
 | Time | Float position accuracy | Notes |
 | --- | --- | --- |

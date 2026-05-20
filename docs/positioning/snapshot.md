@@ -15,7 +15,7 @@ periods to each satellite, then solve four unknowns (position + clock
 bias) by least squares. As the position estimate updates, the integer
 predictions update, and the loop converges.
 
-rinexpy's snapshot solver is `rinexpy.snapshot.snapshot_positioning`.
+`rinexpy`'s snapshot solver is `rinexpy.snapshot.snapshot_positioning`.
 
 ## The model
 
@@ -106,10 +106,10 @@ For an A-GPS deployment, the assistance server typically provides:
 
 - The approximate position prior.
 - Broadcast or interpolated SP3 satellite positions at the assumed receive
-  time.
+ time.
 - A coarse satellite clock estimate.
 
-rinexpy does not bundle the assistance server. The snapshot solver only
+`rinexpy` does not bundle the assistance server. The snapshot solver only
 takes the pre-computed satellite positions.
 
 ## Use cases

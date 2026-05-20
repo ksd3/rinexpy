@@ -58,7 +58,7 @@ is recognised but whose body is not yet decoded come back with
 
 ### Supported message types
 
-The decoder ships fully-typed decoders for the following messages, grouped
+The decoder is released fully-typed decoders for the following messages, grouped
 by purpose.
 
 **Observation messages.** 1004 (extended L1/L2 RTK observations), and the
@@ -90,8 +90,8 @@ receiver descriptors), 1230 (GLONASS L1/L2 C/A + P code-phase biases).
 **Broadcast ephemeris.** 1019 (GPS LNAV subset: clock + ephemeris), 1020
 (GLONASS slot, frequency channel, broadcast clock and ephemeris).
 
-**State-Space Representation (SSR) for orbits and clocks.** This is the
-family that real-time PPP services use. rinexpy decodes the full set per
+**State-Space Representation (SSR) for orbits and clocks.** The
+family that real-time PPP services use. `rinexpy` decodes the full set per
 the RTCM 10403.3 §3.5.10 specification.
 
 | Message ID | What | System |
@@ -128,7 +128,7 @@ the rate). Code-bias messages carry a `biases` list of
 `{obs_code, value_m}` per satellite.
 
 **IGS-SSR.** Message 4076 wraps a subtype-dispatched SSR payload. The
-decoder reads the IGS-SSR subtype field and delegates to the matching
+decoder reads the IGS-SSR subtype field and calls the matching
 handler.
 
 ### Round-trip with the framer
@@ -179,10 +179,10 @@ msg_type, station_id, z_count, sequence, n_words, health, data_words
 For decoded types (1, 3, 9), the dict adds type-specific fields:
 
 - **Type 1 (pseudorange corrections):** a `corrections` list with
-  `sat_id`, `prc_m`, `rrc_m_s`, `iode` per satellite, plus a UDRE field.
+ `sat_id`, `prc_m`, `rrc_m_s`, `iode` per satellite, plus a UDRE field.
 - **Type 3 (reference station ECEF):** `x_m`, `y_m`, `z_m`.
 - **Type 9 (high-rate pseudorange corrections):** same payload shape as
-  type 1.
+ type 1.
 
 The Hamming parity bits are NOT validated; the framing assumes the
 upstream link is reliable, which is the usual deployment.
@@ -235,8 +235,8 @@ for msg in iter_messages(buf):
 glue the chunks into an `io.BytesIO` (or any seekable byte stream) and
 feed the result into `iter_messages` for decoding.
 
-The HTTP-over-TLS variant comes for free if you pass `port=443`; rinexpy
-delegates to `ssl.create_default_context()` for the TLS handshake.
+The HTTP-over-TLS variant comes for free if you pass `port=443`; `rinexpy`
+calls `ssl.create_default_context()` for the TLS handshake.
 
 ### asyncio variant
 
@@ -271,7 +271,7 @@ address and `password=` is anything non-empty.
 
 ## Real-time PPP
 
-The `rinexpy.realtime` module wires the NTRIP byte stream through the
+The `rinexpy.realtime` module connects the NTRIP byte stream through the
 RTCM3 framer into a `RealtimeOrbitClock` cache. The cache tracks live
 broadcast ephemerides plus SSR corrections plus HAS messages, and lets
 PPP-style code apply orbit / clock corrections in metres or seconds.

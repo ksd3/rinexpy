@@ -1,6 +1,6 @@
 # Architecture
 
-rinexpy is layered. Each layer depends only on the ones below it. The
+`rinexpy` is layered. Each layer depends only on the ones below it. The
 core is small: file I/O, epoch parsing, xarray glue. Every new feature
 lands as its own module rather than growing the existing ones, so the
 public surface scales while the core stays at a few hundred lines.
@@ -71,7 +71,7 @@ public surface scales while the core stays at a few hundred lines.
 
 ### Layer 3, readers, math, and tooling
 
-This is the bulk of the library. Each module is self-contained and
+The bulk of the library. Each module is self-contained and
 depends only on the layers below.
 
 #### Format readers
@@ -188,7 +188,7 @@ api.load                                # 1. user-facing entry
       └── obs3._assemble_obs3           # 8. ONE xarray.Dataset built here
 ```
 
-Steps 7 and 8 are the headline performance change against upstream:
+Steps 7 and 8 are the main performance change against upstream:
 walk and assemble are split, the assemble is linear in epoch count, and
 `xarray.merge` is not called per epoch. See
 [Optimizations](optimizations.md).
@@ -236,7 +236,7 @@ uv run pytest tests/test_obs3.py -v      # one module
 uv run pytest tests/ -k "rtk and not real"  # by keyword
 ```
 
-A handful of tests are marked `@pytest.mark.parity` and compare rinexpy
+A handful of tests are marked `@pytest.mark.parity` and compare `rinexpy`
 output against an installed `georinex` package. They are skipped when
 georinex is not installed.
 

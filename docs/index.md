@@ -1,6 +1,6 @@
-# rinexpy
+# `rinexpy`
 
-rinexpy is a Python toolkit for working with GNSS data. It started as a
+`rinexpy` is a Python toolkit for working with GNSS data. It started as a
 faster fork of [georinex](https://github.com/geospace-code/georinex) and grew
 from a RINEX reader into a complete pipeline that covers everything from the
 raw bytes of a receiver log to a centimetre-accurate position solution.
@@ -37,14 +37,13 @@ obs.sel(sv="G07").C1C  # one observable, one satellite, as an xarray DataArray
 ```
 
 The same `load` call recognises a RINEX 2 file, a RINEX 3 file, a RINEX 4 NAV
-file, an SP3 ephemeris file, or a pre-converted NetCDF, and dispatches to
-the right reader. Filters like `tlim=`, `meas=`, `use=`, and `interval=`
-push down into the parser so that records outside your window are never
-materialised.
+file, an SP3 ephemeris file, or a pre-converted NetCDF, and calls the matching
+reader. Filters like `tlim=`, `meas=`, `use=`, and `interval=` apply during
+parsing, so records outside your window are skipped before they get decoded.
 
 ## Where to start
 
-If you have never used rinexpy before, the [installation guide](installation.md)
+If you have never used `rinexpy` before, the [installation guide](installation.md)
 walks through the `uv` setup and the optional extras. You can then look at
 [quickstart](quickstart.md) for some straightforward workflows.
 
@@ -91,7 +90,7 @@ fault detection and Klobuchar / DCB / TGD corrections. Double-difference
 RTK with LAMBDA integer fixing, a ratio test, and partial ambiguity
 resolution. A `SequentialRTK` class that carries the integer fix across
 epochs and detects per-SV cycle slips. A static-or-kinematic precise
-point positioning driver that composes SP3, CLK, ANTEX, GPT2w, DCB,
+point positioning driver that combines SP3, CLK, ANTEX, GPT2w, DCB,
 and carrier-phase wind-up into one call. PPP-RTK fusion. Tightly-coupled
 GNSS/IMU. Snapshot positioning for assisted GPS. Network double-difference.
 VRS synthesis. GNSS reflectometry. [Positioning →](positioning/spp.md)
@@ -117,11 +116,11 @@ Plotting helpers (matplotlib, optional). Validation and diff tools.
 
 ## Project status
 
-The project is on its v0.2 series. The public surface is stable in the sense
-that the names exported from `rinexpy/__init__.py` will not move, but
-extensions to that surface are landing regularly. The
-[changelog](project/changelog.md) tracks every release. Anything not in
-`__init__.py` and anything starting with an underscore is internal.
+The project is on its v0.2 series. The names exported from
+`rinexpy/__init__.py` will not move; new functions get added on top of
+the existing ones. The [changelog](project/changelog.md) tracks every
+release. Anything not in `__init__.py` or anything that starts with an
+underscore is internal.
 
 The library is local-install only. There is no PyPI release; you clone the
 repository and let `uv` build the project venv. The
@@ -157,7 +156,7 @@ repository and let `uv` build the project venv. The
 
 ## Citation
 
-If you use rinexpy in academic work, please also cite the upstream georinex
+If you use `rinexpy` in academic work, please also cite the upstream georinex
 project for the original reader design:
 [doi:10.5281/zenodo.2580306](https://doi.org/10.5281/zenodo.2580306).
 

@@ -92,7 +92,7 @@ satellite system.
 
 ## 3. Stream files larger than RAM
 
-`load` materialises the entire file as a single Dataset. For multi-day, 1 Hz,
+`load` reads the whole file into memory as a single Dataset. For multi-day, 1 Hz,
 multi-constellation files that can be too much. The streaming iterator yields
 one epoch at a time, with constant memory usage in the file size.
 
@@ -333,7 +333,7 @@ network RTK. See [RTK and integer fixing](positioning/rtk.md).
 
 ## 9. NTRIP and real-time RTCM3
 
-For applications that need live corrections, rinexpy ships an NTRIP v1 / v2
+For applications that need live corrections, `rinexpy` includes an NTRIP v1 / v2
 client and an RTCM3 framer.
 
 ```python
@@ -359,7 +359,7 @@ for msg in iter_messages(buf):
 use. The full set of message types decoded by `iter_messages` is in
 [RTCM and NTRIP](formats/rtcm.md).
 
-For testing without a live caster, the `tests/data/` directory does not ship
+For testing without a live caster, the `tests/data/` directory does not release
 RTCM3 captures, but every example in this documentation that uses RTCM3
 shows how to build one on the fly with the public `PREAMBLE` and `crc24q`
 helpers.
@@ -435,7 +435,7 @@ and reports per-SV slip flags. `rtk.reset()` clears all cached state.
 
 PPP closes the gap between the SP3 / CLK precision (1-2 cm in space, 100 ps
 in clock) and the centimetre-class user position. The driver in `rinexpy.ppp`
-composes the satellite-position interpolator, the clock interpolator, the
+combines the satellite-position interpolator, the clock interpolator, the
 tropospheric model, the antenna phase-centre variations, the DCBs, and the
 carrier-phase wind-up into one call.
 
@@ -491,7 +491,7 @@ with open("ssr-stream.rtcm", "rb") as fp:
 out = ppp_solve(obs, sp3, clk=None, ssr=ssr)
 ```
 
-`SSRCorrections` absorbs orbit (1057, 1063, 1240, ...), clock (1058, 1064,
+`SSRCorrections` takes in orbit (1057, 1063, 1240, ...), clock (1058, 1064,
 1241, ...), and code-bias (1059, 1065, 1242, ...) messages per system. It
 rotates the RTCM radial / along-track / cross-track delta into ECEF using
 each SV's instantaneous frame and extrapolates the clock polynomial off the

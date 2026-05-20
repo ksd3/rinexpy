@@ -6,7 +6,7 @@ displacements matter at the centimetre level. The IERS Conventions 2010
 list four contributions: solid Earth tides, the pole tide, the ocean
 pole tide, and ocean tide loading from the sea-surface mass redistribution.
 
-rinexpy implements all four. The implementations live in
+`rinexpy` implements all four. The implementations live in
 `rinexpy.tides` and `rinexpy.otl`.
 
 ## Solid Earth tides

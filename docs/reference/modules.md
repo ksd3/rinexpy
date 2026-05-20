@@ -34,7 +34,7 @@ RINEX 2 observation file reader.
 
 ### `rinexpy.obs3`
 
-RINEX 3 observation file reader. The headline performance win is here.
+RINEX 3 observation file reader. The main performance win is here.
 
 | Symbol | Type | Notes |
 | --- | --- | --- |
@@ -629,6 +629,6 @@ LAMBDA integer ambiguity resolution.
 
 ## Related pages
 
-- [Top-level API](top-level.md): the headline functions.
+- [Top-level API](top-level.md): the main functions.
 - [Glossary](glossary.md): GNSS-specific terminology.
 - [Architecture](../internals/architecture.md): how the modules layer.

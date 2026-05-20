@@ -1,6 +1,6 @@
 # Kalman filters
 
-rinexpy ships three closely-related extended Kalman filters for GNSS
+`rinexpy` includes three closely-related extended Kalman filters for GNSS
 positioning. All three are static-receiver designs (with optional kinematic
 mode) that estimate the receiver state from iono-free pseudorange and
 carrier-phase observations. The difference between them is the state
@@ -232,7 +232,7 @@ spawn the filter directly.
 
 ## Tuning the noise
 
-The four headline sigmas are:
+The four main sigmas are:
 
 `sigma_code` — pseudorange 1-sigma in metres. A modern receiver tracking
 in clear sky records around 30 cm of noise on the iono-free combination.
@@ -248,7 +248,7 @@ TCXO/OCXO this is 1-10 m/sqrt(s); for a Rb maser it is closer to 0.1.
 sqrt(hr). Typical values are 5-30 mm/sqrt(hr).
 
 The filter's covariance matrix grows over time when `predict` runs without
-a corresponding update; this is the standard Kalman drift.
+a corresponding update; the standard Kalman drift.
 
 ## Process noise
 

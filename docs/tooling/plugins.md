@@ -1,6 +1,6 @@
 # Plugin system
 
-For file formats that rinexpy does not natively support, the `plugins`
+For file formats that `rinexpy` does not natively support, the `plugins`
 module lets external packages register their own readers under a Python
 entry-point group. The dispatcher tries the built-in `load` first and
 falls back to plugins on failure.
@@ -56,8 +56,8 @@ The function:
 
 1. Tries `rinexpy.load("file.unknown")` first.
 2. If `load` raises (typically `ValueError` for an unrecognised file), it
-   iterates the discovered plugins and calls each one until one returns a
-   Dataset.
+ iterates the discovered plugins and calls each one until one returns a
+ Dataset.
 3. If every plugin also raises, the original `load` error is re-raised.
 
 This pattern lets you point existing code at unrecognised file types
@@ -115,14 +115,14 @@ def read_my_format(path) -> xr.Dataset:
     return xr.Dataset({"data": ("time", values)}, coords={"time": times})
 ```
 
-After installing the package alongside rinexpy (`uv pip install
+After installing the package alongside `rinexpy` (`uv pip install
 my-rinexpy-plugin`), the entry point appears in `discover_plugins`
 automatically.
 
 ## When to write a plugin
 
 The plugin path is intended for genuinely external file formats: vendor
-binary protocols that are not in scope for the rinexpy core, internal
+binary protocols that are not in scope for the `rinexpy` core, internal
 formats specific to your organisation, or experimental readers that you
 want to keep separate.
 

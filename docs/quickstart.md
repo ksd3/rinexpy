@@ -1,11 +1,9 @@
 # Quickstart
 
-This page contains five worked examples, all which run
-against files in the `tests/data/` directory that ships with the repository,
-so you can paste them straight into a REPL without preparing anything.
+Five worked examples that run against files in `tests/data/`. Paste them
+straight into a REPL.
 
-The examples assume you ran `uv sync` from the project root. Either prefix
-the snippets with `uv run python`, or activate the venv first:
+Either prefix the snippets with `uv run python`, or activate the venv first:
 
 ```sh
 source .venv/bin/activate
@@ -49,8 +47,8 @@ obs.attrs["interval"]            # nominal sampling interval in seconds
 
 ## 2. Filter while reading
 
-Every filter you pass to `load` pushes down into the parser. Records that
-do not match are never materialised, so opening a 24-hour 1 Hz file and
+Every filter you pass to `load` applies during parsing. Records that
+do not match are skipped before decoding, so opening a 24-hour 1 Hz file and
 keeping a five-minute window is cheap.
 
 ```python
@@ -70,7 +68,7 @@ result by an integer factor of the input rate.
 ## 3. Stream a file you do not want to load whole
 
 For files that are large enough to be uncomfortable in RAM, the
-streaming iterator yields one epoch at a time. The memory footprint is
+streaming iterator yields one epoch at a time. The memory usage is
 constant in the file size.
 
 ```python

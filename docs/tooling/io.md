@@ -1,6 +1,6 @@
 # NetCDF and Zarr output
 
-For long-term storage and fast subsequent loads, rinexpy can write the
+For long-term storage and fast subsequent loads, `rinexpy` can write the
 parsed datasets to NetCDF4 or Zarr. The same datasets can be re-read
 with `rinexpy.load`, so the round trip is a free win on archive
 workflows.
@@ -226,5 +226,5 @@ choice. The Zarr option exists for the cases that need it.
 
 - [RINEX observation files](../formats/rinex-obs.md): the source of the parsed dataset.
 - [Multi-file tools](multi-file.md): `concat_files`, `validate_file`, `diff_datasets`.
-- [Streaming over RAM-sized files](streaming.md): when the file is too big to materialise.
+- [Streaming over RAM-sized files](streaming.md): when the file is too big to load.
 - [Async loading](async.md): the asyncio wrappers.

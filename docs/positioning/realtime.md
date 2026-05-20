@@ -5,7 +5,7 @@ the SSR correction set, and a stationary or kinematic PPP filter into one
 pipeline. The endpoint is a sub-decimetre absolute position, updated every
 second, while the connection holds.
 
-rinexpy ships two layers for this. `rinexpy.realtime.RealtimeOrbitClock`
+`rinexpy` includes two layers for this. `rinexpy.realtime.RealtimeOrbitClock`
 is the orbit/clock cache that ingests every kind of correction message
 and reports the live correction per satellite. The `ppp_solve` driver in
 `rinexpy.ppp` accepts an `ssr=` argument that wraps the same data path.
@@ -20,7 +20,7 @@ and reports the live correction per satellite. The `ppp_solve` driver in
 - `has_orbit`, `has_clock`: live HAS corrections.
 - `broadcast`: broadcast ephemerides per `(system, prn)`, indexed by `t_oe`.
 - `ssr_validity_s`: how long an SSR correction is considered valid past
-  its reception time.
+ its reception time.
 
 ```python
 from rinexpy.realtime import RealtimeOrbitClock
@@ -71,7 +71,7 @@ unavailable (`None`).
 
 ## End-to-end pipeline
 
-The headline NTRIP loop is the recommended entry point.
+The main NTRIP loop is the recommended entry point.
 
 ```python
 from rinexpy.realtime import RealtimeOrbitClock, ntrip_message_loop
@@ -115,11 +115,11 @@ For a full real-time PPP, the typical pattern is:
 
 1. Open an NTRIP connection to an SSR mountpoint in one thread.
 2. Open an NTRIP connection to your own RTCM3 base stream (or a local
-   observation source) in another.
+ observation source) in another.
 3. Apply the cache's corrections to your broadcast or SP3-interpolated
-   satellite positions per epoch.
+ satellite positions per epoch.
 4. Feed the corrected positions and clocks into `ppp_solve` (or a
-   long-running `StaticPPPFilter`).
+ long-running `StaticPPPFilter`).
 
 ```python
 import threading
@@ -179,9 +179,9 @@ For 1 Hz PPP the latency budget breaks down like this:
 
 - NTRIP TCP latency: 50-150 ms typical to a regional caster.
 - RTCM3 + SSR generation latency at the network operations centre:
-  500-2000 ms (operator-dependent).
+ 500-2000 ms (operator-dependent).
 - Receiver observation epoch: 0-1000 ms in the worst case (1 Hz
-  receiver).
+ receiver).
 - Filter update: a few milliseconds.
 
 Total end-to-end latency is typically 1-3 seconds. That is fine for

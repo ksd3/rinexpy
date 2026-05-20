@@ -6,9 +6,9 @@ overwhelms the real signal. Spoofing in particular is the deliberate
 broadcast of fake GNSS signals, designed to make the receiver believe it
 is somewhere it is not.
 
-rinexpy's spoofing module is a set of four short heuristics. None of them
+`rinexpy`'s spoofing module is a set of four short heuristics. None of them
 constitute a definitive spoofing detector; together they raise enough
-suspicion to demand a closer look. The module lives in
+suspicion to demand a closer look. The module is in
 `rinexpy.spoofing`.
 
 | Function | What | When to use |
@@ -80,7 +80,7 @@ epoch) and `speed_mps` (per-epoch instantaneous speed in metres per
 second). Any epoch where `speed_mps > max_speed_m_per_s` is flagged.
 
 The default 300 m/s is for a high-speed vehicle. For a stationary
-receiver, drop it to 5 m/s; the test then catches very small jumps.
+receiver, drop it to 5 m/s; the test then catches small jumps.
 
 ## Clock drift
 
@@ -142,10 +142,10 @@ The typical workflow:
 1. Run a real position solver on the receiver log.
 2. Apply the four heuristics to the per-epoch outputs.
 3. If any heuristic fires in more than, say, 5% of epochs, flag the log
-   for manual review.
+ for manual review.
 4. The actual decision to reject the log is human-in-the-loop.
 
-For a real anti-spoofing deployment, the right answer is multi-sensor
+For a real anti-spoofing deployment, the standard answer is multi-sensor
 fusion (inertial, optical, cellular) with formal hypothesis testing.
 GNSS-only heuristics catch the dumb spoofers, not the sophisticated ones.
 
@@ -153,7 +153,7 @@ GNSS-only heuristics catch the dumb spoofers, not the sophisticated ones.
 
 These are not cryptographic anti-spoofing. They do not validate the GPS
 authenticated signal (Chimera, M-code) or Galileo OS-NMA. The
-authenticated-signal verifiers live below the RINEX layer; rinexpy does
+authenticated-signal verifiers live below the RINEX layer; `rinexpy` does
 not implement them. For OS-NMA, see the
 [Galileo OS-NMA test bench](https://www.gsc-europa.eu/galileo/services/os-nma).
 

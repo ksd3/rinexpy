@@ -7,7 +7,7 @@ IGS station contains pseudorange, carrier phase, Doppler, and signal-strength
 observations for every satellite of every constellation that the receiver
 tracked over the file's time span.
 
-rinexpy reads RINEX 2.x, RINEX 3.x, and (for header-only inspection) RINEX 4
+`rinexpy` reads RINEX 2.x, RINEX 3.x, and (for header-only inspection) RINEX 4
 observation files. The output is always an `xarray.Dataset`.
 
 ## The dataset schema
@@ -55,7 +55,7 @@ obs = rp.load("tests/data/obs3.01gage.10o")
 print(obs)
 ```
 
-For the small file that ships with the repository, the output is:
+For the small file in the repository, the output is:
 
 ```
 <xarray.Dataset>
@@ -107,7 +107,7 @@ observable are NaN.
 
 The signal-naming convention also differs. RINEX 2 uses two characters
 (`L1`, `C1`, `P2`, ...). RINEX 3 uses three (`L1C`, `C2W`, `S1P`, ...): a
-band number, a tracking-mode letter, and the optional attribute. rinexpy
+band number, a tracking-mode letter, and the optional attribute. `rinexpy`
 keeps the original labels in both directions.
 
 If you need version-aware code, the `version` attribute on the parsed
@@ -120,7 +120,7 @@ hdr_v3 = rp.rinexheader("tests/data/obs3.01gage.10o")    # version is 3.0
 
 ## Filtering during the read
 
-Every filter pushes down into the parser; records that do not match are
+Every filter applies during parsing; records that do not match are
 skipped before they ever turn into Python floats.
 
 ```python
@@ -219,7 +219,7 @@ for time, ds in rp.iter_obs3_epochs("huge.rnx.gz"):
 ```
 
 `ds` is a single-time `xarray.Dataset` sized to the SVs visible at that
-epoch. Memory footprint is constant regardless of how long the file is.
+epoch. memory usage is constant regardless of how long the file is.
 
 The same `use`, `tlim`, and `interval` filters work on the iterator.
 
@@ -229,7 +229,7 @@ with `load`.
 ## NetCDF round-trip
 
 The `out=` argument on `load` triggers a NetCDF write as the file is
-parsed. The data lands in an HDF5 group named after the file kind.
+parsed. The data ends up in an HDF5 group named after the file kind.
 
 ```python
 rp.load("tests/data/demo.10o", out="demo.nc")
@@ -265,7 +265,7 @@ the goal is a smaller RINEX file that another tool can read.
 ## Performance
 
 A worked benchmark is on the [benchmarks page](../internals/benchmarks.md).
-Headline numbers on the bundled test corpus:
+main numbers on the bundled test corpus:
 
 | Path | Time | Speedup vs georinex |
 | --- | --- | --- |
@@ -274,15 +274,15 @@ Headline numbers on the bundled test corpus:
 | RINEX 3 OBS, native C++ | 40 ms on a 23h 15s file | 28x |
 | RINEX 3 OBS, numba JIT | 38 ms on a 23h 15s file | 29x |
 
-The headline win is on RINEX 3 OBS, where dropping the per-epoch
+The biggest win is on RINEX 3 OBS, where dropping the per-epoch
 `xarray.merge` from the upstream implementation removes an O(N²) factor.
 The page on [optimizations](../internals/optimizations.md) walks through
 every change.
 
 ## Bundled fixtures
 
-The `tests/data/` directory ships a corpus large enough to exercise every
-combination of the reader. The headline files are:
+The `tests/data/` directory is released a corpus large enough to exercise every
+combination of the reader. The main files are:
 
 | File | What it covers |
 | --- | --- |

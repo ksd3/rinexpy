@@ -4,9 +4,9 @@ For PPP, RTK, and any other carrier-phase processing, the per-satellite
 phase observation must be continuous through the session. A cycle slip
 (a sudden jump in the integer number of cycles the receiver is tracking)
 breaks that continuity, and any downstream filter that does not detect
-the slip will absorb it as a position error or as a biased ambiguity.
+the slip will take in it as a position error or as a biased ambiguity.
 
-rinexpy's QC module ships three independent slip detectors, multipath
+`rinexpy`'s QC module is released three independent slip detectors, multipath
 combinations, a Hatch filter for carrier-smoothed code, and repair
 helpers. All of them live in `rinexpy.qc`.
 
@@ -205,7 +205,7 @@ smoothed = hatch_filter(
 ```
 
 The `window` is the smoothing length in epochs. With 100-epoch smoothing
-on 1 Hz data, the output is essentially as smooth as the carrier with
+on 1 Hz data, the output is as smooth as the carrier with
 the (long-term) bias of the pseudorange. Typical use: SPP with
 carrier-smoothed pseudorange has a 5-10x lower noise than raw SPP.
 

@@ -7,7 +7,7 @@ visible in the antenna's signal-to-noise (SNR) trace as a slow oscillation
 versus elevation; the oscillation frequency maps to the reflector height
 through a simple two-ray model.
 
-rinexpy implements the SNR-based altimetric retrieval from Larson (2008,
+`rinexpy` implements the SNR-based altimetric retrieval from Larson (2008,
 2013).
 
 ## The model
@@ -94,7 +94,7 @@ the reflected signal at high elevations.
 For a typical ocean retrieval:
 
 - Pick a single satellite arc, ideally with at least 30 minutes of
-  data sampling.
+ data sampling.
 - Restrict to elevations between 5° and 25°.
 - Use the GPS L1 SNR (`S1` for RINEX 2, `S1C` or `S1P` for RINEX 3).
 - Use the L1 wavelength.
@@ -115,14 +115,14 @@ The Larson recipe gives reflector height. With additional processing the
 same SNR trace can yield:
 
 - **Significant wave height.** From the amplitude decay of the
-  interferometric pattern as elevation drops.
+ interferometric pattern as elevation drops.
 - **Soil moisture.** Over land, the dielectric contrast between dry and
-  wet soil changes the reflection coefficient, which changes the
-  oscillation amplitude.
+ wet soil changes the reflection coefficient, which changes the
+ oscillation amplitude.
 - **Sea ice / snow depth.** Same idea, with the reflector at the snow or
-  ice surface rather than the bare ground.
+ ice surface rather than the bare ground.
 
-rinexpy currently exposes the reflector-height retrieval. The other
+`rinexpy` currently exposes the reflector-height retrieval. The other
 products are downstream analyses on top of the same `power` spectrum.
 
 ## Performance

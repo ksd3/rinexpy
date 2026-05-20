@@ -1,6 +1,6 @@
 # Installation
 
-rinexpy has not yet been published on PyPI. The package must be installed from the GitHub
+`rinexpy` has not yet been published on PyPI. The package must be installed from the GitHub
 repository. We recommended using [`uv`](https://docs.astral.sh/uv/), which manages the Python
 version, the virtual environment, the lock file, and the optional native
 extension as one workflow.
@@ -39,7 +39,7 @@ uv sync --all-extras
 
 The `--all-extras` flag pulls every optional reader, the matplotlib plotting
 helpers, the numba JIT path, the Zarr writer, and the local C++ extension
-that lives under `native/`. The project venv lands in `.venv/`. The lock
+that is under `native/`. The project venv ends up in `.venv/`. The lock
 file is `uv.lock`.
 
 If you would rather have a thinner install, drop the flag and pick the
@@ -62,14 +62,14 @@ again with the new flags.
 
 ## Python version
 
-rinexpy needs Python 3.11 or newer. We develop on 3.13.
+`rinexpy` needs Python 3.11 or newer. We develop on 3.13.
 `uv` will pick the right interpreter from your system automatically;
 if you want a specific one, `uv python install 3.12` (or 3.11 or 3.13) and
 then `uv sync --python 3.12` will pin the project to that version.
 
 ## Running anything
 
-Anything you run against rinexpy can be run with `uv run`, which handles
+Anything you run against `rinexpy` can be run with `uv run`, which handles
 activating the venv for you. There is no need to do `source .venv/bin/activate`
 yourself.
 
@@ -90,7 +90,7 @@ independent; pick any combination.
 
 ### `native`
 
-Builds the rinexpy C++17 extension `native/` in the
+Builds the `rinexpy` C++17 extension `native/` in the
 repository. The extension provides two things. 
 
 1. A CRINEX 1 and CRINEX 3
@@ -99,7 +99,7 @@ several times faster.
 2, An in-place RINEX 3 OBS decoder that drops
 the parse time of a 24-hour 30-second file from about 70 ms to about 40 ms.
 
-When `native` is installed, rinexpy uses it automatically for CRINEX reads
+When `native` is installed, `rinexpy` uses it automatically for CRINEX reads
 and for the OBS3 parse kernel. You do not need to opt in. If the native
 extension is not present, the pure-Python decoder runs instead.
 
@@ -107,7 +107,7 @@ extension is not present, the pure-Python decoder runs instead.
 
 Installs the [hatanaka](https://pypi.org/project/hatanaka/) package, the
 pure-Python implementation that the original georinex used. It is slower
-than the C++ extension but ships as a single wheel with no compiler step,
+than the C++ extension but is released as a single wheel with no compiler step,
 which makes it useful on platforms where building a C++ extension is
 inconvenient.
 
@@ -116,21 +116,21 @@ If both `native` and `hatanaka` are installed, the native path is automatically 
 ### `lzw`
 
 Installs [ncompress](https://pypi.org/project/ncompress/) so that
-rinexpy can decompress old Unix `.Z` files. The standard library does not
-ship an LZW decoder, so without this extra a `.Z` file raises `ImportError`
+`rinexpy` can decompress old Unix `.Z` files. The standard library does not
+release an LZW decoder, so without this extra a `.Z` file raises `ImportError`
 with an actionable message.
 
 ### `netcdf`
 
 Installs `netCDF4`, which is the engine xarray uses for the NetCDF round
 trips. Most platforms have this preinstalled because xarray itself depends
-on it, but the explicit extra is there so that minimal installs that lean on
+on it, but the explicit extra is there so that minimal installs that use
 the bare xarray Zarr / HDF backends still pick up NetCDF support.
 
 ### `geo`
 
 Installs [pymap3d](https://pypi.org/project/pymap3d/), an alternative
-implementation of the ECEF / geodetic / ENU conversions. rinexpy does not
+implementation of the ECEF / geodetic / ENU conversions. `rinexpy` does not
 require pymap3d, but a couple of plotting helpers can use it for cartopy-style
 projections.
 
@@ -139,12 +139,12 @@ projections.
 Installs matplotlib so that `rinexpy.plots` can render time series, ground
 tracks, skyplots, and receiver maps. Without matplotlib, the module raises
 `ImportError` only when you try to call one of its functions; importing
-rinexpy itself never touches matplotlib.
+`rinexpy` itself never touches matplotlib.
 
 ### `jit`
 
 Installs `numba`. When you opt in with `use_jit=True` on a call to
-`rinexobs3`, or by setting `RINEXPY_USE_JIT=1` in the environment, rinexpy
+`rinexobs3`, or by setting `RINEXPY_USE_JIT=1` in the environment, `rinexpy`
 runs the OBS3 inner loop through numba. The end-to-end speedup is about
 1.9x on a 23-hour 15-second file. The trade-off is the one-shot JIT compile
 cost on the first call and an extra dependency tree.
@@ -240,7 +240,7 @@ uv run pytest tests/test_obs3.py -v        # one module
 uv run pytest tests/ -k "rtk and not real"  # by keyword
 ```
 
-A handful of tests are marked `@pytest.mark.parity` and compare rinexpy
+A handful of tests are marked `@pytest.mark.parity` and compare `rinexpy`
 output against an installed `georinex` package. If you want them to run,
 install `georinex` into the project venv first.
 
@@ -249,13 +249,13 @@ uv pip install georinex
 uv run pytest tests/test_parity.py -q
 ```
 
-A few `..._real.py` tests load real RINEX files that are not shipped with
+A few `..._real.py` tests load real RINEX files that are not included with
 the repository. They are skipped automatically when the data is missing.
 
 ## Building the docs locally
 
 The docs you are reading right now are built with MkDocs Material. The
-configuration lives in `mkdocs.yml` at the repository root, the pages live
+configuration is in `mkdocs.yml` at the repository root, the pages live
 under `docs/`, and the build itself runs inside the project venv.
 
 ```sh
@@ -269,7 +269,7 @@ dependencies it needs.
 
 ## Cross-version verification
 
-If you maintain a downstream project that needs rinexpy to work across
+If you maintain a downstream project that needs `rinexpy` to work across
 several Python versions, `uv` makes the loop tight.
 
 ```sh

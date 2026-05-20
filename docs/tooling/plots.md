@@ -125,7 +125,7 @@ label's first character.
 
 ## timeseries dispatch
 
-For convenience, `timeseries(data)` dispatches to either `obstimeseries`
+For convenience, `timeseries(data)` calls either `obstimeseries`
 or `navtimeseries` based on the `rinextype` attribute of the input
 dataset.
 

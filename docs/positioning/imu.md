@@ -8,7 +8,7 @@ of Hertz; integrating these gives a high-rate position estimate that
 drifts over time but is locally smooth. GNSS provides the absolute
 reference that bounds the drift.
 
-rinexpy ships two extended Kalman filters for GNSS/IMU fusion.
+`rinexpy` includes two extended Kalman filters for GNSS/IMU fusion.
 
 | Filter | Coupling | State | Use case |
 | --- | --- | --- | --- |
@@ -186,7 +186,7 @@ for the body-to-ECEF rotation. Works for tactical-grade IMUs (gyro bias
 (figure-eight) for a few minutes. The filter observability improves and
 the attitude converges. Required for consumer-grade IMUs.
 
-rinexpy does not bundle initialisation helpers. Pass in your best estimate
+`rinexpy` does not bundle initialisation helpers. Pass in your best estimate
 of the attitude and let the filter converge through the trajectory.
 
 ## Tuning the noise

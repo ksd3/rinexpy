@@ -7,7 +7,7 @@ update, typically every two hours for GPS, or every thirty minutes for
 Galileo. The file is enough for a code-only fix at the ten-metre level if
 you have nothing else.
 
-rinexpy reads RINEX 2.x, RINEX 3.x, and the structured records of RINEX 4
+`rinexpy` reads RINEX 2.x, RINEX 3.x, and the structured records of RINEX 4
 NAV files.
 
 ## The dataset schema
@@ -84,7 +84,7 @@ The GLONASS field set is:
 | `MessageFrameTime`, `health` | misc | various |
 
 The original RINEX 2 GLONASS broadcasts position in km, velocity in km/s,
-acceleration in km/s². rinexpy converts to SI metres in the read path.
+acceleration in km/s². `rinexpy` converts to SI metres in the read path.
 
 ## Reading
 
@@ -275,10 +275,10 @@ backward-compatible.
 
 The RINEX 3 NAV reader is the largest speedup over the upstream
 implementation; the per-SV `xarray.merge` pattern is gone, and the parser
-collects flat tuples into a single Dataset at the end. Headline numbers
+collects flat tuples into a single Dataset at the end. main numbers
 from the [benchmarks page](../internals/benchmarks.md):
 
-| File | georinex | rinexpy | Speedup |
+| File | georinex | `rinexpy` | Speedup |
 | --- | --- | --- | --- |
 | `demo_nav3.17n` (RINEX 3 NAV, small) | 18 ms | 0.5 ms | 33x |
 | `ELKO...MN.rnx.gz` (RINEX 3 NAV, 188 KB) | 1003 ms | 31 ms | 33x |

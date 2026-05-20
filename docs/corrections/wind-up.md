@@ -10,7 +10,7 @@ The wind-up shows up in carrier-phase observations only. Pseudoranges are
 not polarisation-sensitive. For PPP-class positioning the correction is
 applied as a per-satellite per-epoch accumulator.
 
-The model is Wu et al. (1993). rinexpy exposes the per-epoch wind-up
+The model is Wu et al. (1993). `rinexpy` exposes the per-epoch wind-up
 calculation in `rinexpy.geodesy.phase_wind_up_correction`.
 
 ## The model
@@ -19,9 +19,9 @@ The wind-up angle for one satellite at one epoch is computed from four
 direction vectors:
 
 - `sat_xhat`, `sat_yhat`: the satellite antenna's body-frame x and y axes,
-  in ECEF.
+ in ECEF.
 - `rx_xhat`, `rx_yhat`: the receiver antenna's body-frame x and y axes,
-  in ECEF.
+ in ECEF.
 - `los_rx_to_sat`: the unit vector from the receiver to the satellite.
 
 The wind-up is the angle between the satellite's transmitting axes and
@@ -137,8 +137,8 @@ Typical wind-up magnitudes per satellite:
 - Per epoch: a few mm to tens of mm, depending on geometry.
 - Per pass (rising to setting): up to about 30 cm.
 - Across multiple satellites: when the geometry is symmetric, much of
-  the wind-up cancels in the common-mode receiver clock estimate; what
-  is left biases the position by 5-10 cm at the worst.
+ the wind-up cancels in the common-mode receiver clock estimate; what
+ is left biases the position by 5-10 cm at the worst.
 
 For RTK over short baselines the wind-up cancels in the double
 difference (both receivers see the same satellite from nearly the same
@@ -153,15 +153,15 @@ When the satellite enters Earth's shadow (the "eclipse season"), the
 sun-pointing yaw model breaks down. The satellite applies a yaw
 manoeuvre to keep itself pointed correctly when the sun reappears. The
 manoeuvre takes a few minutes, during which the body axes do not follow
-the textbook formula and the wind-up calculation is wrong.
+the standard formula and the wind-up calculation is wrong.
 
 Operationally, PPP processors flag observations during eclipse manoeuvres
-and either down-weight them or drop them. rinexpy does not currently
+and either down-weight them or drop them. `rinexpy` does not currently
 expose eclipse-season flags; for cm-class PPP across eclipse seasons,
 implement an eclipse mask in your pre-processing.
 
 ## Related pages
 
 - [Precise point positioning](../positioning/ppp.md): where `apply_wind_up=True` plugs in.
-- [Atmosphere products](../formats/atmosphere-products.md): the ANTEX reader, which carries the satellite antenna PCO/PCV (a separate per-satellite correction that lives in the same area of the pipeline).
+- [Atmosphere products](../formats/atmosphere-products.md): the ANTEX reader, which carries the satellite antenna PCO/PCV (a separate per-satellite correction that is in the same area of the pipeline).
 - [Tides and station displacements](tides.md): the matching site displacement chain.

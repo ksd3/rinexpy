@@ -6,7 +6,7 @@ parity check, decodes the structured fields, and exposes them through a
 RINEX NAV file, or passes the raw bits through in messages like u-blox
 RXM-SFRBX for downstream decode.
 
-rinexpy ships decoders for every modernised-signal nav message in the
+`rinexpy` includes decoders for every modernised-signal nav message in the
 operational constellations. Each decoder has the same shape: feed the
 bit-packed bytes for one message body, get a dict with the named ICD fields.
 
@@ -161,7 +161,7 @@ CNAV-2 is the L1C civilian signal's nav message. Each frame is structured
 as SF1 (TOI, 9 bits) + SF2 (1200 bits of clock plus ephemeris) + SF3
 (274 bits of pages).
 
-The full ephemeris lives in SF2; rinexpy decodes it.
+The full ephemeris is in SF2; `rinexpy` decodes it.
 
 ```python
 from rinexpy.gps_cnav2 import decode_cnav2_subframe2
@@ -210,7 +210,7 @@ Page 2 (part 2):
 ## Galileo I-NAV (E1B, E5b)
 
 I-NAV is broadcast on E1B and E5b at 250 sps. Each I-NAV word is 128 bits.
-Word types 1 and 4 carry the headline ephemeris and clock data.
+Word types 1 and 4 carry the main ephemeris and clock data.
 
 ```python
 from rinexpy.galileo_nav import decode_inav_word1, decode_inav_word4

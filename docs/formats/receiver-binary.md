@@ -254,7 +254,7 @@ print(read_ubnxi(io.BytesIO(b'\x7f')))   # 127
 The GW-10 receiver from Furuno wraps its messages in a simple framed
 binary format: `0x8B (sync) | ID | payload (length by ID) | checksum`.
 The `rinexpy.gw10` module exposes the framer plus a dedicated SBAS L1
-extractor (the receiver's headline feature is its SBAS L1 dump).
+extractor (the receiver's main feature is its SBAS L1 dump).
 
 ### Decoder
 

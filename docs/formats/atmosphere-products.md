@@ -1,6 +1,6 @@
 # Atmosphere products
 
-rinexpy reads the five standard atmospheric-correction file formats from
+`rinexpy` reads the five standard atmospheric-correction file formats from
 the IGS: IONEX (global ionospheric maps), ANTEX (antenna phase-centre
 variations), RINEX MET (surface meteorology), IERS EOP C04 (Earth-orientation
 parameters), and GPT2w (empirical surface met grid).
@@ -205,7 +205,7 @@ temperature, water-vapour pressure, lapse rate, geoid undulation, and the
 hydrostatic / wet mapping coefficients `a_h` / `a_w` for VMF1. The grid
 file (`gpt2_5w.grd`, about 2 MB) is fetched from the
 [Vienna VMF Data Server](https://vmf.geo.tuwien.ac.at/codes/) and supplied
-by the user (not shipped with rinexpy).
+by the user (not included with rinexpy).
 
 ### Loading
 
@@ -317,7 +317,7 @@ records = auto_load_dcb(datetime(2024, 4, 15))   # CAS daily MGEX
 records = auto_load_dcb(datetime(2010, 6, 15))   # CODE monthly P1-P2
 ```
 
-Files are cached under `~/.cache/rinexpy/dcb/`. The CDDIS source is wired
+Files are cached under `~/.cache/rinexpy/dcb/`. The CDDIS source is connected
 but requires a NASA Earthdata Login in `~/.netrc`. The AIUB mirror is the
 default for the pre-2017 path and is anonymous HTTP.
 

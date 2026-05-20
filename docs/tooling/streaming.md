@@ -5,7 +5,7 @@ hundred megabytes uncompressed. A full week of these does not fit in
 memory on most machines. The streaming iterator yields one epoch at a
 time, with constant memory usage in the file size.
 
-The iterator lives in `rinexpy.streaming.iter_obs3_epochs` and is also
+The iterator is in `rinexpy.streaming.iter_obs3_epochs` and is also
 re-exported as `rinexpy.iter_obs3_epochs`.
 
 ## The signature
@@ -78,7 +78,7 @@ full.to_netcdf("huge.nc")
 
 In practice, prefer `batch_convert` to convert per-file. The streaming
 pattern is for cases where you need per-epoch processing logic that
-cannot be folded into a single load call.
+cannot be combined into a single load call.
 
 ### Per-epoch QC
 
@@ -134,7 +134,7 @@ For genuine real-time observation, an NTRIP or serial-port reader is the
 right answer; the file-tail pattern is for cases where you control the
 producer.
 
-## Memory footprint
+## memory usage
 
 The per-epoch Dataset has:
 

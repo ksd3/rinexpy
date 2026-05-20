@@ -216,7 +216,7 @@ ratio test.
 test that flags an outlier satellite in an SPP fix.
 
 **EKF.** Extended Kalman Filter. The sequential estimator used by all
-of rinexpy's positioning filters.
+of `rinexpy`'s positioning filters.
 
 ## Atmosphere
 

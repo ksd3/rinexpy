@@ -158,7 +158,7 @@ for time, ds in rp.iter_obs3_epochs("huge.rnx.gz"):
 ```
 
 `ds` is a single-time `xarray.Dataset` sized to the SVs at that epoch.
-Memory footprint is constant in the file size.
+memory usage is constant in the file size.
 
 ### Stream with filters
 
@@ -508,7 +508,7 @@ with open("ssr-stream.rtcm", "rb") as fp:
 out = ppp_solve(obs, sp3, clk=None, ssr=ssr)
 ```
 
-`SSRCorrections` absorbs orbit + clock + code-bias messages from RTCM3.
+`SSRCorrections` takes in orbit + clock + code-bias messages from RTCM3.
 The driver substitutes the SSR clock for the (missing) CLK lookup per SV.
 
 ## Specialised positioning
@@ -810,7 +810,7 @@ records = auto_load_dcb(datetime(2010, 6, 15))   # pre-2017:  CODE P1-P2
 path = download_dcb(datetime(2024, 4, 15), product="CAS")
 ```
 
-Files are cached under `~/.cache/rinexpy/dcb/`. The CDDIS source is wired
+Files are cached under `~/.cache/rinexpy/dcb/`. The CDDIS source is connected
 but requires a NASA Earthdata Login in `~/.netrc`.
 
 ### Calibrate an ANTEX entry from residuals

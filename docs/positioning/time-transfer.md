@@ -7,7 +7,7 @@ cancels the satellite clock. After subtracting the geometric ranges
 (known from precise satellite ECEF), what is left is the
 receiver-clock-difference plus residual atmosphere and multipath.
 
-rinexpy ships three helpers in `rinexpy.time_transfer`.
+`rinexpy` includes three helpers in `rinexpy.time_transfer`.
 
 | Function | Purpose |
 | --- | --- |
@@ -49,8 +49,8 @@ The standard common-view recipe is:
 1. Both stations observe the same satellite at the same epoch.
 2. Each station subtracts the geometric range from the pseudorange.
 3. The two corrected pseudoranges differ by the receiver-clock difference
-   (plus residual atmosphere, multipath, and SV ephemeris error, which
-   cancel to first order).
+ (plus residual atmosphere, multipath, and SV ephemeris error, which
+ cancel to first order).
 
 ```python
 from rinexpy.time_transfer import common_view_difference
@@ -167,15 +167,15 @@ floating-point precision (the noise-free case).
 Real common-view time transfer adds:
 
 - **P3 combination** to cancel the ionosphere. Always use P3 unless your
-  link is < 50 km and you can ignore ionospheric mismatch.
+ link is < 50 km and you can ignore ionospheric mismatch.
 - **Troposphere correction** at both stations. Saastamoinen at standard
-  atmosphere is enough for most links.
+ atmosphere is enough for most links.
 - **Precise satellite positions and clocks** from SP3 + CLK. Broadcast
-  SV clocks have multi-nanosecond error.
+ SV clocks have multi-nanosecond error.
 - **Multipath rejection** via SNR mask and elevation mask. A 15° mask is
-  the conventional choice.
+ the conventional choice.
 - **Aggregation over time.** Average over 5-minute windows, or apply a
-  Kalman filter to the per-epoch differences for smoothing.
+ Kalman filter to the per-epoch differences for smoothing.
 
 For UTC traceability the standard is BIPM's CCTF Common-View time
 transfer, with a daily averaging window.

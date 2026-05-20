@@ -7,7 +7,7 @@ the broadcast ephemeris: a radial / along-track / cross-track offset, a
 clock polynomial, and per-(SV, observation code) code biases. A typical
 SSR mountpoint streams these at a few hundred bytes per second.
 
-rinexpy's `SSRCorrections` class absorbs the decoded RTCM3 SSR messages
+`rinexpy`'s `SSRCorrections` class takes in the decoded RTCM3 SSR messages
 and exposes per-`(sv, epoch)` corrections to the positioning layer.
 
 ## Construction
@@ -174,7 +174,7 @@ threading.Thread(target=feed_ssr, daemon=True).start()
 ```
 
 For a cleaner pipeline, use `RealtimeOrbitClock` in
-`rinexpy.realtime` which absorbs broadcast nav + SSR + HAS together. See
+`rinexpy.realtime` which takes in broadcast nav + SSR + HAS together. See
 [Real-time PPP](../positioning/realtime.md).
 
 ## Worked example
@@ -230,7 +230,7 @@ corrected_pos = sat_pos + correction
 The composer recognises every SSR message in the RTCM 10403.3 family:
 
 - **GPS:** 1057 (orbit), 1058 (clock), 1059 (code bias), 1060 (combined),
-  1061 (URA), 1062 (high-rate clock).
+ 1061 (URA), 1062 (high-rate clock).
 - **GLONASS:** 1063, 1064, 1065, 1066, 1067, 1068.
 - **Galileo:** 1240, 1241, 1242, 1243, 1244, 1245.
 - **QZSS:** 1246, 1247, 1248, 1249, 1250, 1251.

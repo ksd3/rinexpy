@@ -185,4 +185,4 @@ uv run rinexpy convert data/ '*.18o' --out out/ -j 0 --use G --interval 30
 - [QC and cycle slips](../quality/qc.md): deeper data-quality checks.
 - [NetCDF and Zarr output](io.md): the persisted-form options.
 - [Command-line interface](cli.md): the CLI subcommands that wrap these.
-- [Streaming over RAM-sized files](streaming.md): when the file is too big to materialise.
+- [Streaming over RAM-sized files](streaming.md): when the file is too big to load.

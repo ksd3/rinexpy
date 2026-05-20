@@ -7,7 +7,7 @@ covers, sampled every 15 minutes. The clock RMS in an IGS final SP3 is on
 the order of 75 picoseconds, which is good enough for centimetre-class
 positioning when combined with the matching RINEX clock product.
 
-rinexpy reads SP3-a, SP3-c, and SP3-d. The matching `.clk` clock products
+`rinexpy` reads SP3-a, SP3-c, and SP3-d. The matching `.clk` clock products
 go through `load_clk`.
 
 ## SP3
@@ -93,7 +93,7 @@ The default order is 10, per the IGS recommendation. To override:
 interp = rp.interpolate_sp3(sp3, queries, order=8)
 ```
 
-Order-10 is the right answer for almost every workflow. The IGS file is
+Order-10 is the standard choice for almost every workflow. The IGS file is
 sampled at 900 seconds, so a 10-point window spans 2.5 hours. The
 Lagrange polynomial is stable in the middle of that window and degrades
 at the edges; near the file boundary the function uses a one-sided window
@@ -208,7 +208,7 @@ If you need bulk interpolation, vectorise it yourself with
 
 ## Using SP3 + CLK in positioning
 
-The combination of an SP3 file and a matching CLK file is what drives a PPP
+The combination of an SP3 file and a matching CLK file is what controls a PPP
 solution. The PPP driver in `rinexpy.ppp` takes both directly:
 
 ```python
@@ -238,7 +238,7 @@ The IGS publishes three product latencies, each in its own combined file.
 
 For real-time work the `IGS-SSR` corrections (RTCM3 messages 1057-1068 and
 1240-1263, plus 4076) refine a recent broadcast or rapid solution. The
-`SSRCorrections` class in `rinexpy.ssr` absorbs those messages and the
+`SSRCorrections` class in `rinexpy.ssr` takes in those messages and the
 `ppp_solve` driver accepts `ssr=` in place of `clk=`.
 
 ## Performance
@@ -250,9 +250,9 @@ followed by per-SV writes, and is also more correct: SVs that are listed in
 the header but absent from a given epoch read back as NaN, not as
 uninitialised memory.
 
-Headline numbers from the [benchmarks page](../internals/benchmarks.md):
+main numbers from the [benchmarks page](../internals/benchmarks.md):
 
-| File | georinex | rinexpy | Speedup |
+| File | georinex | `rinexpy` | Speedup |
 | --- | --- | --- | --- |
 | `example1.sp3a` (3 KB) | 1.2 ms | 0.7 ms | 1.6x |
 | `igs19362.sp3c` (225 KB) | 3.0 ms | 2.5 ms | 1.2x |
