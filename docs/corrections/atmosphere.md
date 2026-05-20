@@ -3,7 +3,7 @@
 GNSS signals propagate through the Earth's neutral atmosphere (the
 troposphere, mostly nitrogen and water vapour) and through the upper
 atmosphere (the ionosphere, mostly free electrons). Both delay the signal.
-The neutral delay is non-dispersive and adds 2-10 metres at zenith. The
+The neutral delay is non-dispersive and adds roughly 2-10 metres at zenith. The
 ionospheric delay is dispersive (frequency-dependent) and ranges from
 1 metre at quiet times to 50 metres during a solar storm.
 

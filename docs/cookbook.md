@@ -1,8 +1,8 @@
 # Cookbook
 
-Short recipes, one per task. Every snippet stands alone and assumes
-`import rinexpy as rp` at the top. The longer walkthrough is in the
-[tutorial](tutorial.md).
+Every snippet stands alone and assumes
+`import rinexpy as rp` at the top. You can also look at the
+[tutorial](tutorial.md) oage.
 
 ## Reading
 
@@ -12,7 +12,7 @@ Short recipes, one per task. Every snippet stands alone and assumes
 ds = rp.load("path/to/file.rnx.gz")
 ```
 
-The dispatch is content-based. Suffix does not matter; gzip / bzip2 / zip /
+Suffix does not matter; gzip / bzip2 / zip /
 LZW / Hatanaka decompression happens transparently.
 
 ### Open just the header

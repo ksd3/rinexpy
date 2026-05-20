@@ -1,7 +1,6 @@
 # Quickstart
 
-This is the shortest possible walk from "I have rinexpy installed" to "I have
-a sensible piece of output". Five worked examples, every one of which runs
+This page contains five worked examples, all which run
 against files in the `tests/data/` directory that ships with the repository,
 so you can paste them straight into a REPL without preparing anything.
 
@@ -28,7 +27,7 @@ ephemeris files, and pre-converted NetCDF files. Compressed forms
 (`.gz`, `.bz2`, `.zip`, `.Z`, `.crx`, `.crx.gz`) are decompressed
 transparently as long as the matching optional extra is installed.
 
-The return value is an `xarray.Dataset`. You select a satellite and a
+The return value is an `xarray.Dataset`. You can select a satellite and a
 measurement code with normal xarray indexing.
 
 ```python
@@ -134,7 +133,7 @@ print("iterations: ", sol["n_iter"])
 ```
 
 For a noise-free input the solver converges in six iterations to the
-truth, to floating-point precision. With real noisy pseudoranges and
+truth (floating-point precision). With real noisy pseudoranges and
 real satellite geometry you can expect 5-10 metres of horizontal error
 on a single epoch of GPS-only L1 SPP, dropping to a metre or so with the
 dual-frequency iono-free combination plus a tropospheric correction.
@@ -177,11 +176,3 @@ uv run rinexpy convert tests/data "*.10o" --out out/ -j 2
 ```
 
 Reading the result back is just `rp.load("out/foo.10o.nc")`.
-
-## Next stop
-
-The [tutorial](tutorial.md) takes the same patterns and extends them
-through SP3 interpolation, broadcast nav decoding, ionospheric correction,
-RTK with LAMBDA integer fixing, and precise point positioning. The
-[cookbook](cookbook.md) is the place to look for one-line recipes when you
-already know the workflow.

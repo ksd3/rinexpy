@@ -1,7 +1,7 @@
 # Installation
 
-rinexpy is not published on PyPI. The project is installed from the GitHub
-repository under [`uv`](https://docs.astral.sh/uv/), which manages the Python
+rinexpy has not yet been published on PyPI. The package must be installed from the GitHub
+repository. We recommended using [`uv`](https://docs.astral.sh/uv/), which manages the Python
 version, the virtual environment, the lock file, and the optional native
 extension as one workflow.
 
@@ -62,15 +62,15 @@ again with the new flags.
 
 ## Python version
 
-rinexpy needs Python 3.11 or newer. Day-to-day development is on 3.13.
+rinexpy needs Python 3.11 or newer. We develop on 3.13.
 `uv` will pick the right interpreter from your system automatically;
 if you want a specific one, `uv python install 3.12` (or 3.11 or 3.13) and
 then `uv sync --python 3.12` will pin the project to that version.
 
 ## Running anything
 
-Anything you run against rinexpy goes through `uv run`, which handles
-activating the venv for you. There is no need to source `.venv/bin/activate`
+Anything you run against rinexpy can be run with `uv run`, which handles
+activating the venv for you. There is no need to do `source .venv/bin/activate`
 yourself.
 
 ```sh
@@ -90,10 +90,13 @@ independent; pick any combination.
 
 ### `native`
 
-Builds the rinexpy C++17 extension that lives under `native/` in the
-repository. The extension provides two things. First, a CRINEX 1 and CRINEX 3
+Builds the rinexpy C++17 extension `native/` in the
+repository. The extension provides two things. 
+
+1. A CRINEX 1 and CRINEX 3
 decoder that matches the upstream `hatanaka` package byte-for-byte and is
-several times faster. Second, an in-place RINEX 3 OBS decoder that drops
+several times faster. 
+2, An in-place RINEX 3 OBS decoder that drops
 the parse time of a 24-hour 30-second file from about 70 ms to about 40 ms.
 
 When `native` is installed, rinexpy uses it automatically for CRINEX reads
@@ -102,45 +105,45 @@ extension is not present, the pure-Python decoder runs instead.
 
 ### `hatanaka`
 
-Pulls in the [hatanaka](https://pypi.org/project/hatanaka/) package, the
+Installs the [hatanaka](https://pypi.org/project/hatanaka/) package, the
 pure-Python implementation that the original georinex used. It is slower
 than the C++ extension but ships as a single wheel with no compiler step,
 which makes it useful on platforms where building a C++ extension is
 inconvenient.
 
-If both `native` and `hatanaka` are installed, the native path wins.
+If both `native` and `hatanaka` are installed, the native path is automatically used.
 
 ### `lzw`
 
-Pulls in [ncompress](https://pypi.org/project/ncompress/) so that
+Installs [ncompress](https://pypi.org/project/ncompress/) so that
 rinexpy can decompress old Unix `.Z` files. The standard library does not
 ship an LZW decoder, so without this extra a `.Z` file raises `ImportError`
 with an actionable message.
 
 ### `netcdf`
 
-Pulls in `netCDF4`, which is the engine xarray uses for the NetCDF round
+Installs `netCDF4`, which is the engine xarray uses for the NetCDF round
 trips. Most platforms have this preinstalled because xarray itself depends
 on it, but the explicit extra is there so that minimal installs that lean on
 the bare xarray Zarr / HDF backends still pick up NetCDF support.
 
 ### `geo`
 
-Pulls in [pymap3d](https://pypi.org/project/pymap3d/), an alternative
+Installs [pymap3d](https://pypi.org/project/pymap3d/), an alternative
 implementation of the ECEF / geodetic / ENU conversions. rinexpy does not
 require pymap3d, but a couple of plotting helpers can use it for cartopy-style
 projections.
 
 ### `plot`
 
-Pulls in matplotlib so that `rinexpy.plots` can render time series, ground
+Installs matplotlib so that `rinexpy.plots` can render time series, ground
 tracks, skyplots, and receiver maps. Without matplotlib, the module raises
 `ImportError` only when you try to call one of its functions; importing
 rinexpy itself never touches matplotlib.
 
 ### `jit`
 
-Pulls in `numba`. When you opt in with `use_jit=True` on a call to
+Installs `numba`. When you opt in with `use_jit=True` on a call to
 `rinexobs3`, or by setting `RINEXPY_USE_JIT=1` in the environment, rinexpy
 runs the OBS3 inner loop through numba. The end-to-end speedup is about
 1.9x on a 23-hour 15-second file. The trade-off is the one-shot JIT compile
@@ -152,13 +155,13 @@ end up at roughly the same wall-clock time, but `native` does not need
 
 ### `zarr`
 
-Pulls in [zarr](https://pypi.org/project/zarr/) so that `rinexpy.zarr_io.to_zarr`
+Installs [zarr](https://pypi.org/project/zarr/) so that `rinexpy.zarr_io.to_zarr`
 can write a parsed dataset out as a Zarr store. Handy for cloud workflows
 where multiple workers want to read partial slices of the same dataset.
 
 ### `all`
 
-Convenience extra that turns on `lzw`, `netcdf`, `geo`, and `plot` in one
+Convenience flag that turns on `lzw`, `netcdf`, `geo`, and `plot` in one
 shot. Equivalent to the four `--extra` flags called together.
 
 ## Verifying the install

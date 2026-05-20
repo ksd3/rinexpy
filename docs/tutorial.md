@@ -1,14 +1,6 @@
 # Tutorial
 
-This is the long walkthrough of rinexpy. It starts where the
-[quickstart](quickstart.md) finishes, follows a single thread through every
-major capability, and ends at a centimetre-accurate PPP fix. Every snippet
-is paste-ready against the files that ship in `tests/data/`.
-
-If you only want one specific recipe, the [cookbook](cookbook.md) breaks the
-same material into shorter chunks. If you want the full per-symbol reference,
-the [top-level API page](reference/top-level.md) lists every public function
-and class.
+This is a series of tutorials on using `rinexpy`. 
 
 ## 1. Open and inspect
 
@@ -33,7 +25,7 @@ print(obs.time.values[0])    # numpy.datetime64('2010-03-05T00:00:00.000000')
 print(list(obs.data_vars))   # ['L1C', 'L2P', 'C1P', 'C2P', 'C1C', 'S1P', 'S2P', 'S1C']
 ```
 
-Indexing is the usual xarray idioms. Boolean masks, `sel` by label, `isel`
+You can index using `xarray` conventions. Boolean masks, `sel` by label, `isel`
 by integer, `dropna` for missing data.
 
 ```python
@@ -43,7 +35,7 @@ mid = obs.isel(time=slice(0, 2))  # first two epochs
 clean = c1c.dropna(dim="time", how="any")
 ```
 
-The header information lives in the `.attrs` dict. For RINEX OBS the
+The header information is present in the `.attrs` dict. For RINEX OBS the
 useful keys are `position`, `position_geodetic`, `interval`, `fields`,
 `time_system`, and `filename`.
 
@@ -71,8 +63,8 @@ print(times[:3])                # ['2010-03-05T00:00:00', '2010-03-05T00:00:30']
 
 ## 2. Filter cheaply during the read
 
-Every filter you pass to `load` is honoured by the parser. Records outside
-your filter are dropped before they ever turn into Python floats.
+The parser autodetects every filtering condition passed to `load` and applies it. Records outside
+your filter are dropped before they are ever loaded.
 
 ```python
 import datetime as dt
@@ -87,7 +79,7 @@ obs = rp.load(
 )
 ```
 
-The four filters compose freely. `use=` accepts a single letter or a set of
+The four filters are composable. `use=` accepts a single letter or a set of
 letters from the canonical `{G, R, E, J, C, I, S}`. `meas=` accepts a list
 of RINEX 3 observation labels (`C1C`, `L2W`, `S1P`, ...) or RINEX 2 short
 codes (`L1`, `C1`, `P2`). `tlim=` accepts `(start, end)` as ISO-8601 strings,
@@ -144,11 +136,10 @@ print(interp.position.sel(sv="G05").values)   # (3 queries, 3 ECEF) in km
 ```
 
 Units in the returned dataset are kilometres for `position`, dm/s for
-`velocity`, and microseconds for `clock`. The same convention as the SP3
-file on disk.
+`velocity`, and microseconds for `clock`. 
 
 If the query epoch is in the second half of the file, the Lagrange window
-straddles the file boundary; rinexpy detects this and uses a one-sided
+straddles the file boundary; `rinexpy` detects this and uses a one-sided
 window so the result is still well-conditioned.
 
 ## 5. Broadcast nav and Keplerian propagation
@@ -593,13 +584,3 @@ write_nav3(nav, "out.rnx")
 from rinexpy.sp3 import write_sp3
 write_sp3(sp3, "out.sp3", version="c")
 ```
-
-## Where to go from here
-
-The [cookbook](cookbook.md) is the place for short, focused recipes. The
-[positioning section](positioning/spp.md) covers SPP, RTK, PPP, snapshot
-positioning, IMU fusion, and time transfer with the full math. The
-[file formats section](formats/rinex-obs.md) breaks every supported reader
-out into its own page with the schema and worked examples. The
-[internals](internals/architecture.md) describe the layered architecture
-and the optimisations that make rinexpy faster than its upstream.
