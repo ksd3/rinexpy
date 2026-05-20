@@ -1,126 +1,171 @@
 # rinexpy
 
-A fast RINEX reader for Python that grew into a GNSS toolkit.
+rinexpy is a Python toolkit for working with GNSS data. It started life as a
+faster fork of [georinex](https://github.com/geospace-code/georinex), and grew
+from a RINEX reader into a complete pipeline that covers everything from the
+raw bytes of a receiver log to a centimetre-accurate position solution.
 
-rinexpy is a fork of [georinex](https://github.com/geospace-code/georinex)
-with the OBS3 and NAV3 readers rewritten. Upstream builds an
-`xarray.Dataset` per epoch and merges them, which is O(N²) in epoch
-count. rinexpy fills a NumPy buffer once and builds the Dataset at
-the end. On the shared corpus that's 13-33× faster on RINEX-3
-NAV/OBS files.
+The library is built around a small, layered core. File readers live at the
+bottom and turn raw bytes into NumPy buffers and `xarray.Dataset` objects.
+Above them sit the math layers: geodesy, GPS time, Keplerian orbit
+propagation, Lagrange interpolation of SP3 ephemerides. On top of that come
+the positioning engines: single-point positioning with optional RAIM, a real
+double-difference RTK solver with LAMBDA integer fixing, a sequential RTK
+loop that carries ambiguities across epochs, a static-or-kinematic precise
+point positioning driver, a tightly-coupled GNSS/IMU filter, plus a snapshot
+solver for assisted GPS. Every layer is documented in this site.
 
-## Quick start
+## When you would reach for rinexpy
+
+You have a directory of RINEX 2 or RINEX 3 observation files, possibly
+gzip-compressed or in Hatanaka CRINEX form, and you want them in memory as
+labelled tables instead of fixed-width text. You have an SP3 file from the
+IGS and need satellite positions at a 1 Hz cadence rather than the published
+15 minute interval. You want to listen to an NTRIP caster, decode the live
+RTCM3 stream, and feed those corrections into a PPP filter. You want a tool
+that does not require a Fortran compiler, a five-step install, or a paid
+license.
 
 ```python
 import rinexpy as rp
 
 obs = rp.load("ABMF00GLP_R_20181330000_01D_30S_MO.zip")
-obs.sel(sv="G07").C1C
+obs.sel(sv="G07").C1C  # one observable, one satellite, as an xarray DataArray
 ```
+
+The same `load` call recognises a RINEX 2 file, a RINEX 3 file, a RINEX 4 NAV
+file, an SP3 ephemeris file, or a pre-converted NetCDF, and dispatches to
+the right reader. Filters like `tlim=`, `meas=`, `use=`, and `interval=`
+push down into the parser so that records outside your window are never
+materialised.
 
 ## Where to start
 
-<div class="grid cards" markdown>
+If you have never used rinexpy before, the [installation guide](installation.md)
+walks through the `uv` setup and the optional extras. The
+[quickstart](quickstart.md) is the shortest path from a fresh clone to a
+working position fix.
 
--   :material-school:{ .lg .middle } **New here?**
+If you already have rinexpy installed and want a worked example, the
+[tutorial](tutorial.md) is a long-form walkthrough that starts at "I have a
+RINEX file" and ends at "I have a centimetre-accurate PPP solution". The
+[cookbook](cookbook.md) covers shorter recipes when you only need one
+specific function.
 
-    ---
+If you are looking for a particular reader, head straight to the
+[file formats](formats/rinex-obs.md) section. Every supported format has its
+own page with the full schema of the returned dataset and a runnable code
+sample.
 
-    Install to RTK fix in 12 sections.
+If you want the per-symbol reference, the [top-level API](reference/top-level.md)
+documents every public function, kwarg, and return type. The
+[module index](reference/modules.md) maps the source tree against what gets
+re-exported.
 
-    [:octicons-arrow-right-24: Tutorial](TUTORIAL.md)
+## What is included
 
--   :material-clipboard-text:{ .lg .middle } **Need a one-liner?**
+The bullet list below is dense. Each item links to the page that covers it
+in detail.
 
-    ---
+**Readers.** RINEX 2 / 3 / 4 observation files and navigation files. SP3-a,
+SP3-c, and SP3-d satellite ephemerides. RINEX clock products. IONEX TEC
+maps. ANTEX antenna phase-centre variations. RINEX MET surface met data.
+IERS EOP C04 Earth-orientation series. GPT2w gridded empirical met for
+hydrostatic and wet zenith delays. SINEX-BIAS for differential and observable
+biases, plus the legacy AIUB monthly format. NetCDF4 and Zarr round-trips of
+the parsed datasets. [File formats →](formats/rinex-obs.md)
 
-    Short recipes grouped by topic.
+**Streaming inputs.** RTCM 2.x DGPS frames. RTCM 3.x with full MSM 1-7
+decoding, the GPS LNAV broadcast ephemeris messages 1019 / 1020, the IGS
+SSR family 1057-1068 and 1240-1263 covering orbit, clock, code-bias, and
+URA, plus IGS-SSR message 4076. NTRIP v1 and v2 clients with both a
+synchronous generator and an `asyncio` variant. NMEA-0183 sentences. u-blox
+UBX. Septentrio SBF. NovAtel OEM. UNAVCO BINEX. Furuno GW-10 framed SBAS.
+[RTCM and NTRIP →](formats/rtcm.md)
 
-    [:octicons-arrow-right-24: Cookbook](COOKBOOK.md)
+**Raw navigation message decoders.** GPS LNAV subframes 1-3 on L1 C/A, GPS
+CNAV messages 10 and 11 on L2C/L5, GPS CNAV-2 subframe 2 on L1C. Galileo
+F-NAV pages 1 and 2 on E5a, Galileo I-NAV words 1 and 4 on E1B/E5b. GLONASS
+L1OF/L2OF strings 1 to 3 with sign-magnitude decoding per the GLONASS ICD.
+BeiDou D1 subframe 1 and D2 page 1. NavIC subframes 1 and 2, with raw
+subframes 3 and 4 returned for downstream dispatch. SBAS L1 message types
+1, 2-5, 6, 7, 9, 17, 18, 24, 25, 26 per RTCA DO-229E.
+[Raw subframes →](formats/nav-subframes.md)
 
--   :material-book-open-variant:{ .lg .middle } **Want the reference?**
+**Positioning.** Iterative single-point positioning with optional RAIM
+fault detection and Klobuchar / DCB / TGD corrections. Double-difference
+RTK with LAMBDA integer fixing, a ratio test, and partial ambiguity
+resolution. A `SequentialRTK` class that carries the integer fix across
+epochs and detects per-SV cycle slips. A static-or-kinematic precise
+point positioning driver that composes SP3, CLK, ANTEX, GPT2w, DCB,
+and carrier-phase wind-up into one call. PPP-RTK fusion. Tightly-coupled
+GNSS/IMU. Snapshot positioning for assisted GPS. Network double-difference.
+VRS synthesis. GNSS reflectometry. [Positioning →](positioning/spp.md)
 
-    ---
+**Atmosphere and tides.** Klobuchar broadcast ionospheric model. Niell
+NMF and Vienna VMF1 mapping functions. Saastamoinen zenith hydrostatic
+delay. GPT2w empirical surface met and mapping coefficients. Solid-Earth
+tides per IERS Conventions 2010 step 1 and step 2. Pole tide and ocean
+pole tide. Ocean tide loading via Scherneck BLQ files.
+[Corrections →](corrections/atmosphere.md)
 
-    Per-symbol docs, 43 entries.
+**Quality and integrity.** Three independent cycle-slip detectors
+(phase-only, geometry-free, Melbourne-Wuebbena) plus repair helpers. TEQC-style
+multipath combinations. Hatch filter for carrier-smoothed code. Spoofing
+heuristics on SNR uniformity, position-rate, clock-rate, and AGC.
+[Quality and integrity →](quality/qc.md)
 
-    [:octicons-arrow-right-24: API reference](API.md)
+**Tooling.** A `rinexpy` argparse CLI covering read / times / info /
+convert / spp / rtk / ppp / splice / decimate. Parallel batch conversion to
+NetCDF. Streaming iterator for files larger than RAM. Async wrappers.
+Plotting helpers (matplotlib, optional). Validation and diff tools.
+[Tooling →](tooling/cli.md)
 
--   :material-graph:{ .lg .middle } **Curious how it's built?**
+## Project status
 
-    ---
+The project is on its v0.2 series. The public surface is stable in the sense
+that the names exported from `rinexpy/__init__.py` will not move, but
+extensions to that surface are landing regularly. The
+[changelog](project/changelog.md) tracks every release. Anything not in
+`__init__.py` and anything starting with an underscore is internal.
 
-    Module map and dataflow.
+The library is local-install only. There is no PyPI release; you clone the
+repository and let `uv` build the project venv. The
+[installation guide](installation.md) walks through the options.
 
-    [:octicons-arrow-right-24: Architecture](ARCHITECTURE.md)
+## Compatibility matrix
 
-</div>
+| What | Status | Notes |
+| --- | --- | --- |
+| RINEX 2 / 3 OBS | full | gzip, bz2, zip, LZW `.Z`, Hatanaka CRINEX 1 and 3 |
+| RINEX 2 / 3 NAV | full | GPS, Galileo, GLONASS, BeiDou, QZSS, SBAS, NavIC |
+| RINEX 4 NAV | partial | STO / EOP / ION records plus the modernized EPH set |
+| SP3-a / SP3-c / SP3-d | full | |
+| RINEX clock products `.clk` | full | |
+| IONEX `.inx` | full | |
+| ANTEX `.atx` | full | NOAZI plus the 2-D azimuth-dependent path |
+| RINEX MET | full | |
+| IERS EOP C04 | full | |
+| RTCM 2.x | partial | types 1, 3, 9 fully decoded |
+| RTCM 3.x | partial | extensive; see [RTCM →](formats/rtcm.md) for the matrix |
+| NTRIP v1 / v2 | full | sync and async |
+| NMEA-0183 | partial | GGA, RMC, GSA, GSV, VTG |
+| u-blox UBX | partial | NAV-PVT, NAV-SAT, RXM-RAWX, RXM-SFRBX |
+| Septentrio SBF | partial | PVTGeodetic, MeasEpoch, GPSNav |
+| NovAtel OEM | partial | BESTPOS, BESTXYZ, RAWEPHEM |
+| UNAVCO BINEX | framing-only | forward byte order |
+| SBAS L1 | partial | MT 1, 2-5, 6, 7, 9, 17, 18, 24-26 |
+| BeiDou D1 / D2 | partial | clock plus ionospheric model from SF 1 / page 1 |
+| GPS LNAV / CNAV / CNAV-2 | partial | clock plus full ephemeris |
+| Galileo F-NAV / I-NAV | partial | clock plus part of the ephemeris |
+| GLONASS L1OF / L2OF | partial | strings 1 to 3 |
+| NavIC | partial | subframes 1 and 2 |
 
-## Performance
+## Citation
 
-| Path | Time (23-h 15-s OBS3 file) | vs georinex |
-|---|---|---|
-| `georinex` baseline | ~1100 ms | 1.0× |
-| `rinexpy` pure Python | 75 ms | 15× |
-| `rinexpy` + numba JIT | 38 ms | 29× |
-| `rinexpy` + C++ extension | 39 ms | 28× |
-
-See [Benchmarks](BENCHMARKS.md) for the per-file breakdown and
-[Optimizations](OPTIMIZATIONS.md) for what changed.
-
-## Install
-
-rinexpy isn't on PyPI. Clone the repo, let `uv` set it up.
-
-```sh
-git clone https://github.com/ksd3/rinexpy
-cd rinexpy
-uv sync --all-extras
-```
-
-Python 3.11 or newer. The [README](https://github.com/ksd3/rinexpy#install)
-has the uv install recipe for macOS, Linux, and Windows.
-
-## Coverage
-
-ASCII formats: RINEX 2, 3, 4 NAV/OBS (incl. RINEX 4 STO/EOP/ION),
-NMEA-0183, IGS clock/iono/antex, SINEX-BIAS (DCB / OSB).
-
-Binary: SP3, BINEX, NetCDF, Zarr.
-
-Streaming: RTCM 2.x DGPS, RTCM 3.x with NTRIP (sync + asyncio
-`astream`). RTCM3 covers the SSR family (1057-1068, 1240-1263,
-IGS-SSR MT 4076), MSM 1-7, plus the usual base-station + ephemeris
-types. SBAS L1 message types 1, 2-5, 6, 7, 9, 17, 18, 24-26.
-
-Vendor binary: u-blox UBX, Septentrio SBF, NovAtel OEM.
-
-Raw subframes: GPS LNAV / CNAV (MT 10, 11) / CNAV-2 (subframe 2),
-Galileo F-NAV + I-NAV, GLONASS strings 1-3, NavIC subframes 1+2,
-BeiDou D1/D2.
-
-Positioning: SPP with optional RAIM, RTK with LAMBDA integer fix,
-sequential RTK with ambiguity carry-over, snapshot SPP (code-phase
-only), VRS synthesis for network RTK, and a static-or-kinematic
-PPP driver that consumes SP3+CLK or RTCM-SSR and wires ANTEX PCV,
-GPT2w+VMF1 troposphere, DCB, and carrier-phase wind-up.
-
-Atmosphere + tides: Klobuchar, Saastamoinen, Niell, VMF1, GPT2w
-empirical met grid; solid-earth, ocean (OTL via BLQ), pole, and
-ocean-pole tides; ECEF/ECI rotation with IERS Bulletin A/C04 EOP.
-
-Stretch: GNSS-R reflector-height retrieval (Larson 2008), antenna
-PCV calibration writer, time-transfer (P3 + common-view), DCB
-autodownload from IGS BKG (post-2017) or AIUB CODE (pre-2017).
-
-The [compatibility table in the README](https://github.com/ksd3/rinexpy#compatibility)
-has the full matrix and notes about what's full vs partial.
-
-## Project info
-
-- [Changelog](CHANGELOG.md)
-- [Contributing](CONTRIBUTING.md)
-- [GitHub repository](https://github.com/ksd3/rinexpy)
+If you use rinexpy in academic work, please also cite the upstream georinex
+project for the original reader design:
+[doi:10.5281/zenodo.2580306](https://doi.org/10.5281/zenodo.2580306).
 
 ## License
 

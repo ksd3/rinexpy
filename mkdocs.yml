@@ -1,12 +1,10 @@
 site_name: rinexpy
-site_description: Modern, fast GNSS toolkit for Python
-site_url: https://ksd3.github.io/rinexpy/
+site_description: A modern, fast GNSS toolkit for Python.
+site_url: https://rinexpy.readthedocs.io/
 repo_url: https://github.com/ksd3/rinexpy
 repo_name: ksd3/rinexpy
 edit_uri: edit/main/docs/
 
-# Most of our docs already live in /docs as Markdown — mkdocs uses that
-# directory by default, so no extra plumbing needed.
 docs_dir: docs
 
 theme:
@@ -18,13 +16,13 @@ theme:
     - navigation.expand
     - navigation.footer
     - navigation.top
+    - navigation.indexes
     - search.suggest
     - search.highlight
     - content.code.copy
     - content.code.annotate
     - toc.follow
   palette:
-    # Light mode
     - media: "(prefers-color-scheme: light)"
       scheme: default
       primary: indigo
@@ -32,7 +30,6 @@ theme:
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
-    # Dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
       primary: indigo
@@ -48,16 +45,61 @@ theme:
 
 nav:
   - Home: index.md
-  - Tutorial: TUTORIAL.md
-  - Cookbook: COOKBOOK.md
-  - API reference: API.md
-  - Architecture: ARCHITECTURE.md
-  - Performance:
-      - Optimizations: OPTIMIZATIONS.md
-      - Benchmarks: BENCHMARKS.md
+  - Getting started:
+      - Installation: installation.md
+      - Quickstart: quickstart.md
+      - Tutorial: tutorial.md
+      - Cookbook: cookbook.md
+  - File formats:
+      - RINEX observation files: formats/rinex-obs.md
+      - RINEX navigation files: formats/rinex-nav.md
+      - SP3 and clock products: formats/sp3-clk.md
+      - Atmosphere products: formats/atmosphere-products.md
+      - RTCM and NTRIP: formats/rtcm.md
+      - Receiver binary formats: formats/receiver-binary.md
+      - SBAS and Galileo HAS: formats/sbas-and-has.md
+      - Raw nav subframes: formats/nav-subframes.md
+  - Positioning:
+      - Single-point positioning: positioning/spp.md
+      - RTK and integer fixing: positioning/rtk.md
+      - Precise point positioning: positioning/ppp.md
+      - Kalman filters: positioning/kalman.md
+      - LAMBDA and ambiguity resolution: positioning/lambda.md
+      - Network RTK and VRS: positioning/network.md
+      - Snapshot positioning: positioning/snapshot.md
+      - IMU and INS fusion: positioning/imu.md
+      - Real-time PPP: positioning/realtime.md
+      - GNSS reflectometry: positioning/gnssr.md
+      - Time transfer: positioning/time-transfer.md
+  - Corrections:
+      - Atmospheric models: corrections/atmosphere.md
+      - Tides and station displacements: corrections/tides.md
+      - DCB and code biases: corrections/dcb.md
+      - SSR corrections: corrections/ssr.md
+      - Carrier phase wind-up: corrections/wind-up.md
+      - EOP and Earth orientation: corrections/eop.md
+  - Quality and integrity:
+      - QC and cycle slips: quality/qc.md
+      - Spoofing and jamming heuristics: quality/spoofing.md
+  - Tooling:
+      - Command-line interface: tooling/cli.md
+      - Streaming over RAM-sized files: tooling/streaming.md
+      - NetCDF and Zarr output: tooling/io.md
+      - Async loading: tooling/async.md
+      - Plotting helpers: tooling/plots.md
+      - Multi-file tools: tooling/multi-file.md
+      - Plugin system: tooling/plugins.md
+  - Reference:
+      - Top-level API: reference/top-level.md
+      - Module index: reference/modules.md
+      - Glossary: reference/glossary.md
+  - Internals:
+      - Architecture: internals/architecture.md
+      - Optimizations: internals/optimizations.md
+      - Benchmarks: internals/benchmarks.md
   - Project:
-      - Changelog: CHANGELOG.md
-      - Contributing: CONTRIBUTING.md
+      - Contributing: project/contributing.md
+      - Changelog: project/changelog.md
 
 markdown_extensions:
   - admonition

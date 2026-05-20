@@ -25,3 +25,6 @@ ROADMAP.md
 docs/CHANGELOG.md
 docs/CONTRIBUTING.md
 docs/SCRATCHPAD.md
+
+# mkdocs build output
+site/
