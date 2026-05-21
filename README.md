@@ -2,12 +2,16 @@
 
 A fast RINEX reader for Python that grew into a GNSS toolkit.
 
+**Docs:** [rinexpy.readthedocs.io](https://rinexpy.readthedocs.io) •
+**Repository:** [github.com/ksd3/rinexpy](https://github.com/ksd3/rinexpy)
+
 `rinexpy` is a fork of [georinex](https://github.com/geospace-code/georinex)
 with the OBS3 and NAV3 readers rewritten. Upstream builds an
 `xarray.Dataset` per epoch and merges them, which is O(N²) in epoch
 count. `rinexpy` fills a NumPy buffer in one pass and builds the
 Dataset once at the end. On the shared corpus that is 13-33× faster
-on RINEX-3 NAV/OBS (see [docs/internals/benchmarks.md](docs/internals/benchmarks.md)).
+on RINEX-3 NAV/OBS (see the
+[benchmarks page](https://rinexpy.readthedocs.io/en/latest/internals/benchmarks/)).
 
 On top of the readers, `rinexpy` includes:
 
@@ -80,15 +84,26 @@ directly.
 
 ## Documentation
 
-| | |
+The full docs are published at
+**[rinexpy.readthedocs.io](https://rinexpy.readthedocs.io)**.
+
+| Page | What |
 |---|---|
-| [TUTORIAL.md](docs/TUTORIAL.md) | Install to RTK fix in 12 sections. |
-| [COOKBOOK.md](docs/COOKBOOK.md) | Short recipes. |
-| [API.md](docs/API.md) | Per-symbol reference, 43 entries. |
-| [ARCHITECTURE.md](docs/ARCHITECTURE.md) | Module map and dataflow. |
-| [OPTIMIZATIONS.md](docs/OPTIMIZATIONS.md) | What changed vs georinex. |
-| [BENCHMARKS.md](docs/BENCHMARKS.md) | Measured perf numbers. |
-| [examples/](examples/) | 8 runnable scripts. |
+| [Installation](https://rinexpy.readthedocs.io/en/latest/installation/) | `uv` setup, optional extras, verification. |
+| [Quickstart](https://rinexpy.readthedocs.io/en/latest/quickstart/) | Five worked examples from a fresh clone. |
+| [Tutorial](https://rinexpy.readthedocs.io/en/latest/tutorial/) | Walk through every public layer. |
+| [Cookbook](https://rinexpy.readthedocs.io/en/latest/cookbook/) | Short recipes grouped by topic. |
+| [File formats](https://rinexpy.readthedocs.io/en/latest/formats/rinex-obs/) | RINEX, SP3, RTCM, NMEA, UBX, SBF, NovAtel, BINEX, ANTEX, IONEX, DCB. |
+| [Positioning](https://rinexpy.readthedocs.io/en/latest/positioning/spp/) | SPP, RTK, PPP, IMU, snapshot, GNSS-R, time transfer. |
+| [Corrections](https://rinexpy.readthedocs.io/en/latest/corrections/atmosphere/) | Atmosphere, tides, DCB, SSR, EOP, wind-up. |
+| [Quality](https://rinexpy.readthedocs.io/en/latest/quality/qc/) | Cycle slips, multipath, spoofing heuristics. |
+| [Tooling](https://rinexpy.readthedocs.io/en/latest/tooling/cli/) | CLI, streaming, NetCDF/Zarr, async, plotting. |
+| [API reference](https://rinexpy.readthedocs.io/en/latest/reference/top-level/) | Every public function and kwarg. |
+| [Architecture](https://rinexpy.readthedocs.io/en/latest/internals/architecture/) | Module map and dataflow. |
+| [Optimizations](https://rinexpy.readthedocs.io/en/latest/internals/optimizations/) | What changed vs georinex. |
+| [Benchmarks](https://rinexpy.readthedocs.io/en/latest/internals/benchmarks/) | Measured perf numbers. |
+| [Changelog](https://rinexpy.readthedocs.io/en/latest/project/changelog/) | Release notes. |
+| [examples/](examples/) | 8 runnable scripts in the repository. |
 
 ## Compatibility
 
@@ -288,7 +303,10 @@ for v in 3.11 3.12 3.13; do
 done
 ```
 
-## Build the docs
+## Build the docs locally
+
+The published site at [rinexpy.readthedocs.io](https://rinexpy.readthedocs.io)
+builds automatically from `main`. To preview locally:
 
 ```sh
 uv run mkdocs serve    # live preview at http://127.0.0.1:8000
